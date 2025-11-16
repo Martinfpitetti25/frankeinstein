@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QSlider, QCheckBox, QGroupBox, QFormLayout, QSpinBox, QScrollArea, QFrame,
     QInputDialog
 )
-from PySide6.QtCore import Qt, QThread, Signal, Slot, QTimer
+from PySide6.QtCore import Qt, QThread, Signal, Slot, QTimer, QEvent
 from PySide6.QtGui import QFont, QTextCursor, QImage, QPixmap, QKeySequence, QShortcut
 from dotenv import load_dotenv
 import cv2
@@ -30,6 +30,38 @@ from services import ChatGPTService, OllamaService, GroqService, CameraService, 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+class NoScrollComboBox(QComboBox):
+    """ComboBox that ignores mouse wheel events to prevent accidental changes while scrolling"""
+    
+    def wheelEvent(self, event):
+        """Ignore wheel events when not focused"""
+        if not self.hasFocus():
+            event.ignore()
+        else:
+            super().wheelEvent(event)
+
+
+class NoScrollSlider(QSlider):
+    """Slider that ignores mouse wheel events to prevent accidental changes while scrolling"""
+    
+    def wheelEvent(self, event):
+        """Ignore wheel events when not focused"""
+        if not self.hasFocus():
+            event.ignore()
+        else:
+            super().wheelEvent(event)
+
+
+class NoScrollSpinBox(QSpinBox):
+    """SpinBox that ignores mouse wheel events to prevent accidental changes while scrolling"""
+    
+    def wheelEvent(self, event):
+        """Ignore wheel events when not focused"""
+        if not self.hasFocus():
+            event.ignore()
+        else:
+            super().wheelEvent(event)
 
 
 class AudioWorker(QThread):
@@ -149,6 +181,7 @@ class ChatWindow(QMainWindow):
         self.latest_detections = []
         self.voice_response_enabled = True  # Enable voice responses by default
         self.camera_preview_active = False  # Camera preview OFF by default to save resources
+        self.total_messages = 0  # Message counter for chat tab
         
         # Configuration settings with default values
         self.listen_timeout = 5
@@ -399,123 +432,258 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
         """Create the chat interface tab with camera feed"""
         chat_widget = QWidget()
         chat_main_layout = QVBoxLayout(chat_widget)
-        chat_main_layout.setSpacing(10)
-        chat_main_layout.setContentsMargins(10, 10, 10, 10)
+        chat_main_layout.setSpacing(15)
+        chat_main_layout.setContentsMargins(15, 15, 15, 15)
         
-        # Top bar with model selector
-        top_bar_layout = QHBoxLayout()
+        # ========== ENHANCED TOP BAR ==========
+        top_bar = QWidget()
+        top_bar.setStyleSheet("""
+            QWidget {
+                background-color: #ffffff;
+                border-radius: 10px;
+                padding: 10px;
+            }
+        """)
+        top_bar_layout = QHBoxLayout(top_bar)
+        top_bar_layout.setSpacing(15)
+        top_bar_layout.setContentsMargins(15, 10, 15, 10)
         
-        model_label = QLabel("Model:")
-        top_bar_layout.addWidget(model_label)
+        # Model selector with icon and better styling
+        model_container = QWidget()
+        model_layout = QHBoxLayout(model_container)
+        model_layout.setSpacing(8)
+        model_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.model_selector = QComboBox()
+        model_icon = QLabel("🤖")
+        model_icon.setStyleSheet("font-size: 16pt;")
+        model_layout.addWidget(model_icon)
+        
+        model_label = QLabel("Modelo:")
+        model_label.setStyleSheet("font-weight: 600; color: #34495e; font-size: 10pt;")
+        model_layout.addWidget(model_label)
+        
+        self.model_selector = NoScrollComboBox()
         self.model_selector.addItems(["Groq", "Ollama", "ChatGPT"])
-        self.model_selector.setMinimumWidth(150)
+        self.model_selector.setMinimumWidth(130)
+        self.model_selector.setStyleSheet("""
+            QComboBox {
+                background-color: #ecf0f1;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-weight: 600;
+                color: #2c3e50;
+                font-size: 10pt;
+            }
+            QComboBox:hover {
+                background-color: #d5dbdb;
+                border-color: #95a5a6;
+            }
+            QComboBox::drop-down {
+                border: none;
+                padding-right: 10px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #7f8c8d;
+                margin-right: 5px;
+            }
+        """)
         self.model_selector.currentTextChanged.connect(self.on_model_changed)
-        top_bar_layout.addWidget(self.model_selector)
+        model_layout.addWidget(self.model_selector)
         
+        top_bar_layout.addWidget(model_container)
+        
+        # Status indicators
         top_bar_layout.addStretch()
         
-        # Camera status
-        self.camera_status_label = QLabel("📷 Camera: Initializing...")
-        self.camera_status_label.setStyleSheet("color: #666; font-style: italic;")
+        # AI Status indicator
+        self.ai_status_indicator = QLabel("●")
+        self.ai_status_indicator.setStyleSheet("color: #27ae60; font-size: 14pt;")
+        self.ai_status_indicator.setToolTip("Estado de IA")
+        top_bar_layout.addWidget(self.ai_status_indicator)
+        
+        self.status_label = QLabel("Listo")
+        self.status_label.setStyleSheet("color: #27ae60; font-weight: 600; font-size: 10pt;")
+        top_bar_layout.addWidget(self.status_label)
+        
+        # Separator
+        separator = QLabel("|")
+        separator.setStyleSheet("color: #bdc3c7; font-size: 12pt;")
+        top_bar_layout.addWidget(separator)
+        
+        # Camera status with indicator
+        self.camera_status_indicator = QLabel("●")
+        self.camera_status_indicator.setStyleSheet("color: #f39c12; font-size: 14pt;")
+        self.camera_status_indicator.setToolTip("Estado de cámara")
+        top_bar_layout.addWidget(self.camera_status_indicator)
+        
+        self.camera_status_label = QLabel("Cámara: Iniciando...")
+        self.camera_status_label.setStyleSheet("color: #7f8c8d; font-weight: 600; font-size: 10pt;")
         top_bar_layout.addWidget(self.camera_status_label)
         
-        chat_main_layout.addLayout(top_bar_layout)
+        chat_main_layout.addWidget(top_bar)
         
-        # Main content: Two columns (Chat + Camera)
+        # ========== MAIN CONTENT: Two columns (Chat + Camera) ==========
         content_layout = QHBoxLayout()
         content_layout.setSpacing(15)
         
-        # LEFT COLUMN: Chat interface
+        # ========== LEFT COLUMN: Enhanced Chat Interface ==========
         chat_column = QWidget()
+        chat_column.setStyleSheet("""
+            QWidget {
+                background-color: #ffffff;
+                border-radius: 10px;
+            }
+        """)
         chat_layout = QVBoxLayout(chat_column)
-        chat_layout.setSpacing(10)
-        chat_layout.setContentsMargins(0, 0, 0, 0)
+        chat_layout.setSpacing(12)
+        chat_layout.setContentsMargins(15, 15, 15, 15)
         
-        # Chat title
-        chat_title = QLabel("💬 Chat")
+        # Chat header with icon
+        chat_header = QHBoxLayout()
+        chat_icon = QLabel("💬")
+        chat_icon.setStyleSheet("font-size: 16pt;")
+        chat_header.addWidget(chat_icon)
+        
+        chat_title = QLabel("Conversación")
         chat_title_font = QFont()
         chat_title_font.setPointSize(12)
         chat_title_font.setBold(True)
         chat_title.setFont(chat_title_font)
-        chat_layout.addWidget(chat_title)
+        chat_title.setStyleSheet("color: #2c3e50;")
+        chat_header.addWidget(chat_title)
         
-        # Status label
-        self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: green; font-style: italic;")
-        chat_layout.addWidget(self.status_label)
+        chat_header.addStretch()
         
-        # Chat display area
+        # Conversation counter
+        self.message_counter = QLabel("0 mensajes")
+        self.message_counter.setStyleSheet("""
+            background-color: #ecf0f1;
+            color: #7f8c8d;
+            padding: 4px 10px;
+            border-radius: 10px;
+            font-size: 9pt;
+            font-weight: 600;
+        """)
+        chat_header.addWidget(self.message_counter)
+        
+        chat_layout.addLayout(chat_header)
+        
+        # Enhanced chat display area with scroll
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_display.setFont(QFont("Segoe UI", 10))
         self.chat_display.setStyleSheet("""
             QTextEdit {
-                background-color: #ffffff;
+                background-color: #f8f9fa;
                 border: 2px solid #e1e8ed;
-                border-radius: 8px;
+                border-radius: 10px;
                 padding: 15px;
                 color: #2c3e50;
+                selection-background-color: #3498db;
+            }
+            QScrollBar:vertical {
+                background: #ecf0f1;
+                width: 10px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #bdc3c7;
+                border-radius: 5px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #95a5a6;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
             }
         """)
         chat_layout.addWidget(self.chat_display)
         
-        # Input area
-        input_layout = QHBoxLayout()
+        # ========== ENHANCED INPUT AREA ==========
+        input_container = QWidget()
+        input_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border-radius: 10px;
+                padding: 8px;
+            }
+        """)
+        input_main_layout = QVBoxLayout(input_container)
+        input_main_layout.setSpacing(8)
+        input_main_layout.setContentsMargins(8, 8, 8, 8)
+        
+        # Text input with send button
+        text_input_layout = QHBoxLayout()
+        text_input_layout.setSpacing(8)
         
         self.message_input = QLineEdit()
-        self.message_input.setPlaceholderText("Escribe tu mensaje aquí...")
+        self.message_input.setPlaceholderText("💭 Escribe tu mensaje aquí...")
         self.message_input.setFont(QFont("Segoe UI", 10))
+        self.message_input.setMinimumHeight(42)
         self.message_input.setStyleSheet("""
             QLineEdit {
                 padding: 12px 15px;
-                border: 2px solid #e1e8ed;
+                border: 2px solid #d5dbdb;
                 border-radius: 8px;
                 background-color: #ffffff;
                 color: #2c3e50;
+                font-size: 10pt;
             }
             QLineEdit:focus {
                 border: 2px solid #3498db;
+                background-color: #fefefe;
             }
         """)
         self.message_input.returnPressed.connect(self.send_message)
-        input_layout.addWidget(self.message_input)
+        text_input_layout.addWidget(self.message_input)
         
-        self.send_button = QPushButton("Enviar")
-        self.send_button.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        self.send_button = QPushButton("➤")
+        self.send_button.setFont(QFont("Segoe UI", 14, QFont.Bold))
+        self.send_button.setFixedSize(42, 42)
         self.send_button.setStyleSheet("""
             QPushButton {
                 background-color: #3498db;
                 color: white;
-                padding: 12px 24px;
                 border: none;
-                border-radius: 8px;
-                font-weight: 600;
+                border-radius: 21px;
+                font-weight: 700;
             }
             QPushButton:hover {
                 background-color: #2980b9;
             }
             QPushButton:pressed {
                 background-color: #21618c;
+                transform: scale(0.95);
             }
             QPushButton:disabled {
                 background-color: #bdc3c7;
             }
         """)
+        self.send_button.setToolTip("Enviar mensaje (Enter)")
         self.send_button.clicked.connect(self.send_message)
-        input_layout.addWidget(self.send_button)
+        text_input_layout.addWidget(self.send_button)
+        
+        input_main_layout.addLayout(text_input_layout)
+        
+        # Action buttons row
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(8)
         
         # Voice input button
         self.voice_button = QPushButton("🎤 Voz")
-        self.voice_button.setFont(QFont("Segoe UI", 10))
+        self.voice_button.setFont(QFont("Segoe UI", 9))
         self.voice_button.setStyleSheet("""
             QPushButton {
                 background-color: #9b59b6;
                 color: white;
-                padding: 12px 20px;
+                padding: 8px 16px;
                 border: none;
-                border-radius: 8px;
+                border-radius: 6px;
                 font-weight: 600;
             }
             QPushButton:hover {
@@ -528,20 +696,21 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
                 background-color: #bdc3c7;
             }
         """)
+        self.voice_button.setToolTip("Entrada por voz")
         self.voice_button.clicked.connect(self.start_voice_input)
-        input_layout.addWidget(self.voice_button)
+        actions_layout.addWidget(self.voice_button)
         
         # Voice response toggle button
-        self.voice_response_button = QPushButton("🔊 Audio")
-        self.voice_response_button.setFont(QFont("Segoe UI", 10))
+        self.voice_response_button = QPushButton("🔊 Audio ON")
+        self.voice_response_button.setFont(QFont("Segoe UI", 9))
         self.voice_response_button.setCheckable(True)
         self.voice_response_button.setChecked(True)
         self.voice_response_button.setStyleSheet("""
             QPushButton {
                 color: white;
-                padding: 12px 20px;
+                padding: 8px 16px;
                 border: none;
-                border-radius: 8px;
+                border-radius: 6px;
                 font-weight: 600;
             }
             QPushButton:checked {
@@ -557,89 +726,139 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
                 background-color: #7f8c8d;
             }
         """)
+        self.voice_response_button.setToolTip("Alternar respuesta por voz")
         self.voice_response_button.clicked.connect(self.toggle_voice_response)
-        input_layout.addWidget(self.voice_response_button)
+        actions_layout.addWidget(self.voice_response_button)
         
-        self.clear_button = QPushButton("Limpiar")
-        self.clear_button.setFont(QFont("Segoe UI", 10))
+        actions_layout.addStretch()
+        
+        self.clear_button = QPushButton("🗑️ Limpiar")
+        self.clear_button.setFont(QFont("Segoe UI", 9))
         self.clear_button.setStyleSheet("""
             QPushButton {
-                background-color: #e74c3c;
-                color: white;
-                padding: 12px 20px;
-                border: none;
-                border-radius: 8px;
+                background-color: #ecf0f1;
+                color: #7f8c8d;
+                padding: 8px 16px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background-color: #c0392b;
+                background-color: #e74c3c;
+                color: white;
+                border-color: #c0392b;
             }
         """)
+        self.clear_button.setToolTip("Limpiar conversación")
         self.clear_button.clicked.connect(self.clear_chat)
-        input_layout.addWidget(self.clear_button)
+        actions_layout.addWidget(self.clear_button)
         
-        chat_layout.addLayout(input_layout)
+        input_main_layout.addLayout(actions_layout)
+        
+        chat_layout.addWidget(input_container)
+        
+        # Initialize message counter
+        self.total_messages = 0
         
         # Welcome message
         self.add_system_message(
-            "Welcome to AI Chat Assistant! Select a model and start chatting.\n\n"
+            "¡Bienvenido a Frankeinstein AI! 🤖\n\n"
+            "Selecciona un modelo y comienza a conversar.\n\n"
             "⌨️ Atajos de teclado:\n"
-            "  • Ctrl+Q - Cerrar programa (con limpieza)\n"
-            "  • Ctrl+Shift+Q - Forzar cierre inmediato"
+            "  • Enter - Enviar mensaje\n"
+            "  • Ctrl+Q - Cerrar programa\n"
+            "  • Ctrl+Shift+Q - Cierre de emergencia"
         )
         
         # Add chat column to content
-        content_layout.addWidget(chat_column, stretch=1)
+        content_layout.addWidget(chat_column, stretch=3)
         
-        # RIGHT COLUMN: Camera feed with YOLO
+        # ========== RIGHT COLUMN: Enhanced Camera Feed ==========
         camera_column = QWidget()
+        camera_column.setStyleSheet("""
+            QWidget {
+                background-color: #ffffff;
+                border-radius: 10px;
+            }
+        """)
         camera_layout = QVBoxLayout(camera_column)
-        camera_layout.setSpacing(10)
-        camera_layout.setContentsMargins(0, 0, 0, 0)
+        camera_layout.setSpacing(12)
+        camera_layout.setContentsMargins(15, 15, 15, 15)
         
-        # Camera title
-        camera_title = QLabel("📹 Live Camera + YOLO Detection")
+        # Camera header
+        camera_header = QHBoxLayout()
+        camera_icon = QLabel("📹")
+        camera_icon.setStyleSheet("font-size: 16pt;")
+        camera_header.addWidget(camera_icon)
+        
+        camera_title = QLabel("Visión en Vivo")
         camera_title_font = QFont()
         camera_title_font.setPointSize(12)
         camera_title_font.setBold(True)
         camera_title.setFont(camera_title_font)
-        camera_layout.addWidget(camera_title)
+        camera_title.setStyleSheet("color: #2c3e50;")
+        camera_header.addWidget(camera_title)
         
-        # Video display
+        camera_header.addStretch()
+        
+        # YOLO badge
+        yolo_badge = QLabel("YOLO")
+        yolo_badge.setStyleSheet("""
+            background-color: #e67e22;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 10px;
+            font-size: 8pt;
+            font-weight: 700;
+        """)
+        yolo_badge.setToolTip("Detección de objetos YOLO activada")
+        camera_header.addWidget(yolo_badge)
+        
+        camera_layout.addLayout(camera_header)
+        
+        # Video display with modern frame
+        video_container = QWidget()
+        video_container.setStyleSheet("""
+            QWidget {
+                background-color: #1c1c1c;
+                border-radius: 10px;
+            }
+        """)
+        video_container_layout = QVBoxLayout(video_container)
+        video_container_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.video_label = QLabel()
         self.video_label.setMinimumSize(640, 480)
         self.video_label.setMaximumSize(640, 480)
         self.video_label.setStyleSheet("""
             QLabel {
-                background-color: #000;
-                border: 2px solid #ddd;
-                border-radius: 5px;
+                background-color: #1c1c1c;
+                border-radius: 10px;
+                color: #7f8c8d;
+                font-size: 12pt;
             }
         """)
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setText("Initializing camera...")
-        self.video_label.setStyleSheet("""
-            QLabel {
-                background-color: #000;
-                color: white;
-                border: 2px solid #ddd;
-                border-radius: 5px;
-                font-size: 14px;
-            }
-        """)
-        camera_layout.addWidget(self.video_label)
+        self.video_label.setText("📷\n\nCámara desactivada\n\nPresiona el botón para activar")
+        video_container_layout.addWidget(self.video_label)
         
-        # Camera preview toggle button
+        camera_layout.addWidget(video_container)
+        
+        # Camera controls
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(8)
+        
         self.camera_toggle_btn = QPushButton("▶️ Activar Preview")
+        self.camera_toggle_btn.setMinimumHeight(36)
         self.camera_toggle_btn.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60;
                 color: white;
                 border: none;
-                padding: 10px;
+                padding: 10px 16px;
                 border-radius: 8px;
                 font-weight: 600;
-                font-size: 11pt;
+                font-size: 10pt;
             }
             QPushButton:hover {
                 background-color: #229954;
@@ -649,18 +868,43 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             }
         """)
         self.camera_toggle_btn.clicked.connect(self.toggle_camera_preview)
-        camera_layout.addWidget(self.camera_toggle_btn)
+        self.camera_toggle_btn.setToolTip("Activar/Desactivar vista previa de cámara")
+        controls_layout.addWidget(self.camera_toggle_btn)
         
-        # Detection info
-        self.detection_label = QLabel("Detections: None")
-        self.detection_label.setStyleSheet("color: #666; font-style: italic;")
+        camera_layout.addLayout(controls_layout)
+        
+        # Detection info panel
+        detection_panel = QWidget()
+        detection_panel.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        detection_layout = QVBoxLayout(detection_panel)
+        detection_layout.setSpacing(5)
+        detection_layout.setContentsMargins(10, 8, 10, 8)
+        
+        detection_header = QLabel("🎯 Detecciones")
+        detection_header.setStyleSheet("font-weight: 600; color: #34495e; font-size: 9pt;")
+        detection_layout.addWidget(detection_header)
+        
+        self.detection_label = QLabel("Ninguna detección")
+        self.detection_label.setStyleSheet("""
+            color: #7f8c8d;
+            font-size: 9pt;
+            padding: 4px 0;
+        """)
         self.detection_label.setWordWrap(True)
-        camera_layout.addWidget(self.detection_label)
+        detection_layout.addWidget(self.detection_label)
+        
+        camera_layout.addWidget(detection_panel)
         
         camera_layout.addStretch()
         
         # Add camera column to content
-        content_layout.addWidget(camera_column, stretch=1)
+        content_layout.addWidget(camera_column, stretch=2)
         
         # Add content layout to main layout
         chat_main_layout.addLayout(content_layout)
@@ -670,40 +914,102 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
     def create_settings_tab(self):
         """Create the settings/configuration tab"""
         settings_widget = QWidget()
+        settings_widget.setStyleSheet("""
+            QWidget {
+                background-color: #f5f7fa;
+            }
+        """)
         
         # Create scroll area for settings
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: #f5f7fa;
+            }
+            QScrollBar:vertical {
+                background-color: #ecf0f1;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #95a5a6;
+                border-radius: 6px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #7f8c8d;
+            }
+        """)
         
         # Container widget for scroll area
         container = QWidget()
         main_layout = QVBoxLayout(container)
         main_layout.setSpacing(20)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setContentsMargins(25, 25, 25, 25)
         
-        # Title
-        title_label = QLabel("⚙️ Configuración del Asistente")
-        title_font = QFont()
-        title_font.setPointSize(16)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
+        # Title with modern styling
+        title_label = QLabel("⚙️ Configuración")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 22pt;
+                font-weight: 700;
+                color: #2c3e50;
+                padding: 10px 0;
+                border-bottom: 3px solid #3498db;
+            }
+        """)
         main_layout.addWidget(title_label)
         
         # ========== LLM CONFIGURATION ==========
-        llm_group = QGroupBox("🤖 Configuración de Modelos LLM")
-        llm_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 12pt; }")
+        llm_group = QGroupBox("🤖 Modelos de IA")
+        llm_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: 600;
+                font-size: 13pt;
+                color: #2c3e50;
+                background-color: white;
+                border: 2px solid #e0e6ed;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 15px;
+                padding: 5px 10px;
+            }
+        """)
         llm_layout = QFormLayout()
-        llm_layout.setSpacing(10)
+        llm_layout.setSpacing(15)
+        llm_layout.setContentsMargins(20, 20, 20, 20)
         
         # Ollama model selector
-        self.ollama_model_combo = QComboBox()
+        self.ollama_model_combo = NoScrollComboBox()
         self.ollama_model_combo.addItems(["llama3.2:1b", "mistral:7b"])
         self.ollama_model_combo.setCurrentText("llama3.2:1b")
-        llm_layout.addRow("Modelo Ollama:", self.ollama_model_combo)
+        self.ollama_model_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px 12px;
+                border: 2px solid #e0e6ed;
+                border-radius: 8px;
+                background-color: #f8f9fa;
+                font-size: 10pt;
+            }
+            QComboBox:hover {
+                border-color: #3498db;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 30px;
+            }
+        """)
+        llm_layout.addRow("🦙 Modelo Ollama:", self.ollama_model_combo)
         
         # Groq model selector
-        self.groq_model_combo = QComboBox()
+        self.groq_model_combo = NoScrollComboBox()
         self.groq_model_combo.addItems([
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
@@ -711,7 +1017,23 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             "gemma2-9b-it"
         ])
         self.groq_model_combo.setCurrentText("llama-3.3-70b-versatile")
-        llm_layout.addRow("Modelo Groq:", self.groq_model_combo)
+        self.groq_model_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px 12px;
+                border: 2px solid #e0e6ed;
+                border-radius: 8px;
+                background-color: #f8f9fa;
+                font-size: 10pt;
+            }
+            QComboBox:hover {
+                border-color: #3498db;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 30px;
+            }
+        """)
+        llm_layout.addRow("⚡ Modelo Groq:", self.groq_model_combo)
         
         # Groq API Key
         self.groq_api_key_input = QLineEdit()
@@ -745,6 +1067,23 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
         
         # Save API Keys button
         save_keys_btn = QPushButton("💾 Guardar API Keys")
+        save_keys_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 11pt;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+            QPushButton:pressed {
+                background-color: #1e8449;
+            }
+        """)
         save_keys_btn.clicked.connect(self.save_api_keys)
         llm_layout.addRow("", save_keys_btn)
         
@@ -752,108 +1091,281 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
         main_layout.addWidget(llm_group)
         
         # ========== CAMERA CONFIGURATION ==========
-        camera_group = QGroupBox("📷 Configuración de Cámara y YOLO")
-        camera_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 12pt; }")
+        camera_group = QGroupBox("📷 Cámara y Visión")
+        camera_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: 600;
+                font-size: 13pt;
+                color: #2c3e50;
+                background-color: white;
+                border: 2px solid #e0e6ed;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 15px;
+                padding: 5px 10px;
+            }
+        """)
         camera_layout = QFormLayout()
-        camera_layout.setSpacing(10)
+        camera_layout.setSpacing(15)
+        camera_layout.setContentsMargins(20, 20, 20, 20)
         
         # YOLO confidence slider
         yolo_conf_layout = QHBoxLayout()
-        self.yolo_confidence_slider = QSlider(Qt.Horizontal)
+        self.yolo_confidence_slider = NoScrollSlider(Qt.Horizontal)
         self.yolo_confidence_slider.setMinimum(10)
         self.yolo_confidence_slider.setMaximum(90)
         self.yolo_confidence_slider.setValue(50)
-        self.yolo_confidence_slider.setTickPosition(QSlider.TicksBelow)
-        self.yolo_confidence_slider.setTickInterval(10)
+        self.yolo_confidence_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                height: 8px;
+                background: #e0e6ed;
+                border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                background: #e67e22;
+                width: 20px;
+                height: 20px;
+                margin: -6px 0;
+                border-radius: 10px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #d35400;
+            }
+            QSlider::sub-page:horizontal {
+                background: #e67e22;
+                border-radius: 4px;
+            }
+        """)
         self.yolo_confidence_label = QLabel("0.50")
+        self.yolo_confidence_label.setStyleSheet("""
+            QLabel {
+                font-weight: 600;
+                font-size: 10pt;
+                color: #2c3e50;
+                min-width: 40px;
+            }
+        """)
         self.yolo_confidence_slider.valueChanged.connect(
             lambda v: self.yolo_confidence_label.setText(f"{v/100:.2f}")
         )
         yolo_conf_layout.addWidget(self.yolo_confidence_slider)
         yolo_conf_layout.addWidget(self.yolo_confidence_label)
-        camera_layout.addRow("Confianza YOLO:", yolo_conf_layout)
+        camera_layout.addRow("🎯 Confianza:", yolo_conf_layout)
         
         # Resolution selector
-        self.resolution_combo = QComboBox()
+        self.resolution_combo = NoScrollComboBox()
         self.resolution_combo.addItems(["320x240", "640x480", "1280x720"])
         self.resolution_combo.setCurrentText("640x480")
-        camera_layout.addRow("Resolución:", self.resolution_combo)
+        self.resolution_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px 12px;
+                border: 2px solid #e0e6ed;
+                border-radius: 8px;
+                background-color: #f8f9fa;
+                font-size: 10pt;
+            }
+            QComboBox:hover {
+                border-color: #3498db;
+            }
+        """)
+        camera_layout.addRow("📐 Resolución:", self.resolution_combo)
         
         # Enable YOLO checkbox
         self.enable_yolo_checkbox = QCheckBox("Habilitar detección YOLO")
         self.enable_yolo_checkbox.setChecked(True)
+        self.enable_yolo_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 10pt;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+                border-radius: 4px;
+                border: 2px solid #e0e6ed;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #27ae60;
+                border-color: #27ae60;
+            }
+        """)
         camera_layout.addRow("", self.enable_yolo_checkbox)
         
         camera_group.setLayout(camera_layout)
         main_layout.addWidget(camera_group)
         
         # ========== AUDIO CONFIGURATION ==========
-        audio_group = QGroupBox("🎤 Configuración de Audio")
-        audio_group.setStyleSheet("QGroupBox { font-weight: bold; font-size: 12pt; }")
+        audio_group = QGroupBox("🎤 Audio y Voz")
+        audio_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: 600;
+                font-size: 13pt;
+                color: #2c3e50;
+                background-color: white;
+                border: 2px solid #e0e6ed;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 15px;
+                padding: 5px 10px;
+            }
+        """)
         audio_layout = QFormLayout()
-        audio_layout.setSpacing(10)
+        audio_layout.setSpacing(15)
+        audio_layout.setContentsMargins(20, 20, 20, 20)
         
         # TTS Engine selector
         tts_engine_layout = QHBoxLayout()
-        self.tts_engine_combo = QComboBox()
+        self.tts_engine_combo = NoScrollComboBox()
         self.tts_engine_combo.addItems(["pyttsx3 (Offline)", "Google TTS (Online)"])
         self.tts_engine_combo.setCurrentIndex(0)  # Default to pyttsx3
+        self.tts_engine_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px 12px;
+                border: 2px solid #e0e6ed;
+                border-radius: 8px;
+                background-color: #f8f9fa;
+                font-size: 10pt;
+            }
+            QComboBox:hover {
+                border-color: #3498db;
+            }
+        """)
         self.tts_engine_combo.currentIndexChanged.connect(self.on_tts_engine_changed)
         tts_engine_layout.addWidget(self.tts_engine_combo)
         
         # Status indicator for gTTS availability
         self.gtts_status_label = QLabel()
         if self.audio_service and self.audio_service.is_gtts_available():
-            self.gtts_status_label.setText("✅ gTTS disponible")
-            self.gtts_status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.gtts_status_label.setText("✅")
+            self.gtts_status_label.setStyleSheet("color: #27ae60; font-size: 14pt; font-weight: bold;")
+            self.gtts_status_label.setToolTip("gTTS disponible")
         else:
-            self.gtts_status_label.setText("❌ gTTS no disponible")
-            self.gtts_status_label.setStyleSheet("color: red; font-weight: bold;")
+            self.gtts_status_label.setText("❌")
+            self.gtts_status_label.setStyleSheet("color: #e74c3c; font-size: 14pt; font-weight: bold;")
+            self.gtts_status_label.setToolTip("gTTS no disponible")
             self.tts_engine_combo.setItemData(1, 0, Qt.UserRole - 1)  # Disable gTTS option
         tts_engine_layout.addWidget(self.gtts_status_label)
         
-        audio_layout.addRow("Motor de voz:", tts_engine_layout)
+        audio_layout.addRow("🔊 Motor de voz:", tts_engine_layout)
         
         # Voice volume slider
         volume_layout = QHBoxLayout()
-        self.voice_volume_slider = QSlider(Qt.Horizontal)
+        self.voice_volume_slider = NoScrollSlider(Qt.Horizontal)
         self.voice_volume_slider.setMinimum(0)
         self.voice_volume_slider.setMaximum(100)
         self.voice_volume_slider.setValue(95)  # Optimized to 95%
-        self.voice_volume_slider.setTickPosition(QSlider.TicksBelow)
-        self.voice_volume_slider.setTickInterval(20)
+        self.voice_volume_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                height: 8px;
+                background: #e0e6ed;
+                border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                background: #3498db;
+                width: 20px;
+                height: 20px;
+                margin: -6px 0;
+                border-radius: 10px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #2980b9;
+            }
+            QSlider::sub-page:horizontal {
+                background: #3498db;
+                border-radius: 4px;
+            }
+        """)
         self.voice_volume_label = QLabel("95%")
+        self.voice_volume_label.setStyleSheet("""
+            QLabel {
+                font-weight: 600;
+                font-size: 10pt;
+                color: #2c3e50;
+                min-width: 40px;
+            }
+        """)
         self.voice_volume_slider.valueChanged.connect(
             lambda v: self.voice_volume_label.setText(f"{v}%")
         )
         volume_layout.addWidget(self.voice_volume_slider)
         volume_layout.addWidget(self.voice_volume_label)
-        audio_layout.addRow("Volumen de voz:", volume_layout)
+        audio_layout.addRow("🔉 Volumen:", volume_layout)
         
         # Voice speed slider (only for pyttsx3)
         speed_layout = QHBoxLayout()
-        self.voice_speed_slider = QSlider(Qt.Horizontal)
+        self.voice_speed_slider = NoScrollSlider(Qt.Horizontal)
         self.voice_speed_slider.setMinimum(50)
         self.voice_speed_slider.setMaximum(200)
         self.voice_speed_slider.setValue(130)  # Optimized to 130 (more natural)
-        self.voice_speed_slider.setTickPosition(QSlider.TicksBelow)
-        self.voice_speed_slider.setTickInterval(25)
-        self.voice_speed_label = QLabel("130 (Optimizado)")
+        self.voice_speed_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                height: 8px;
+                background: #e0e6ed;
+                border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                background: #9b59b6;
+                width: 20px;
+                height: 20px;
+                margin: -6px 0;
+                border-radius: 10px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #8e44ad;
+            }
+            QSlider::sub-page:horizontal {
+                background: #9b59b6;
+                border-radius: 4px;
+            }
+        """)
+        self.voice_speed_label = QLabel("130")
+        self.voice_speed_label.setStyleSheet("""
+            QLabel {
+                font-weight: 600;
+                font-size: 10pt;
+                color: #2c3e50;
+                min-width: 40px;
+            }
+        """)
         self.voice_speed_slider.valueChanged.connect(
             lambda v: self.voice_speed_label.setText(f"{v}")
         )
         speed_layout.addWidget(self.voice_speed_slider)
         speed_layout.addWidget(self.voice_speed_label)
-        self.voice_speed_row_label = QLabel("Velocidad (pyttsx3):")
+        self.voice_speed_row_label = QLabel("⚡ Velocidad:")
         audio_layout.addRow(self.voice_speed_row_label, speed_layout)
         
         # Listen timeout
-        self.listen_timeout_spin = QSpinBox()
+        self.listen_timeout_spin = NoScrollSpinBox()
         self.listen_timeout_spin.setMinimum(3)
         self.listen_timeout_spin.setMaximum(10)
         self.listen_timeout_spin.setValue(5)
         self.listen_timeout_spin.setSuffix(" segundos")
-        audio_layout.addRow("Timeout escucha:", self.listen_timeout_spin)
+        self.listen_timeout_spin.setStyleSheet("""
+            QSpinBox {
+                padding: 8px 12px;
+                border: 2px solid #e0e6ed;
+                border-radius: 8px;
+                background-color: #f8f9fa;
+                font-size: 10pt;
+            }
+            QSpinBox:hover {
+                border-color: #3498db;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                border: none;
+                width: 20px;
+            }
+        """)
+        audio_layout.addRow("⏱️ Timeout escucha:", self.listen_timeout_spin)
         
         audio_group.setLayout(audio_layout)
         main_layout.addWidget(audio_group)
@@ -2031,28 +2543,117 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             status_msg += " (No microphone detected)"
         
         self.add_system_message(status_msg)
+        self.update_status_indicators()
+    
+    def update_status_indicators(self):
+        """Update the status indicators in the chat tab"""
+        # Safety check: ensure UI elements are created
+        if not hasattr(self, 'ai_status_indicator') or not hasattr(self, 'model_selector'):
+            return
+        
+        # Update AI status indicator based on current model
+        try:
+            current_model = self.model_selector.currentText()
+            ai_available = False
+            
+            if "GPT" in current_model:
+                ai_available = self.chatgpt_service and self.chatgpt_service.is_available()
+            elif "llama" in current_model or "mistral" in current_model:
+                ai_available = self.ollama_service and self.ollama_service.is_available()
+            elif "groq" in current_model:
+                ai_available = hasattr(self, 'groq_service') and self.groq_service and self.groq_service.is_available()
+            
+            # Set indicator color
+            indicator_color = "#27ae60" if ai_available else "#95a5a6"
+            indicator_tooltip = "IA Conectada" if ai_available else "IA No Disponible"
+            
+            self.ai_status_indicator.setStyleSheet(f"""
+                QLabel {{
+                    color: {indicator_color};
+                    font-size: 14pt;
+                    padding: 0 5px;
+                }}
+            """)
+            self.ai_status_indicator.setToolTip(indicator_tooltip)
+            
+            # Update camera status indicator
+            if hasattr(self, 'camera_status_indicator'):
+                camera_available = (self.camera_service is not None and 
+                                   hasattr(self.camera_service, 'is_available') and 
+                                   self.camera_service.is_available())
+                cam_color = "#27ae60" if camera_available else "#95a5a6"
+                cam_tooltip = "Cámara Activa" if camera_available else "Cámara No Disponible"
+                
+                self.camera_status_indicator.setStyleSheet(f"""
+                    QLabel {{
+                        color: {cam_color};
+                        font-size: 10pt;
+                        padding: 0 3px;
+                    }}
+                """)
+                self.camera_status_indicator.setToolTip(cam_tooltip)
+        except Exception as e:
+            logger.error(f"Error updating status indicators: {e}")
     
     def add_system_message(self, message: str):
         """Add a system message to the chat display"""
-        self.chat_display.append(f'<div style="color: #888; font-style: italic; margin: 5px 0;">{message}</div>')
+        self.chat_display.append(
+            f'<div style="'
+            f'background-color: #ecf0f1; '
+            f'color: #7f8c8d; '
+            f'padding: 8px 12px; '
+            f'margin: 8px 0; '
+            f'border-left: 3px solid #95a5a6; '
+            f'border-radius: 6px; '
+            f'font-size: 9pt; '
+            f'font-style: italic;">'
+            f'ℹ️ {message}'
+            f'</div>'
+        )
+        self.scroll_to_bottom()
     
     def add_user_message(self, message: str):
         """Add a user message to the chat display"""
+        self.total_messages += 1
+        self.update_message_counter()
         self.chat_display.append(
-            f'<div style="background-color: #e3f2fd; padding: 10px; margin: 5px 0; border-radius: 5px;">'
-            f'<strong>You:</strong> {message}'
+            f'<div style="'
+            f'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); '
+            f'color: white; '
+            f'padding: 12px 16px; '
+            f'margin: 10px 50px 10px 10px; '
+            f'border-radius: 18px 18px 4px 18px; '
+            f'box-shadow: 0 2px 8px rgba(0,0,0,0.1); '
+            f'font-size: 10pt;">'
+            f'<div style="font-weight: 600; margin-bottom: 4px; font-size: 8pt; opacity: 0.9;">TÚ</div>'
+            f'{message}'
             f'</div>'
         )
         self.scroll_to_bottom()
     
     def add_assistant_message(self, message: str):
         """Add an assistant message to the chat display"""
+        self.total_messages += 1
+        self.update_message_counter()
         self.chat_display.append(
-            f'<div style="background-color: #f1f8e9; padding: 10px; margin: 5px 0; border-radius: 5px;">'
-            f'<strong>Assistant:</strong> {message}'
+            f'<div style="'
+            f'background: linear-gradient(135deg, #3498db 0%, #2ecc71 100%); '
+            f'color: white; '
+            f'padding: 12px 16px; '
+            f'margin: 10px 10px 10px 50px; '
+            f'border-radius: 18px 18px 18px 4px; '
+            f'box-shadow: 0 2px 8px rgba(0,0,0,0.1); '
+            f'font-size: 10pt;">'
+            f'<div style="font-weight: 600; margin-bottom: 4px; font-size: 8pt; opacity: 0.9;">🤖 FRANKEINSTEIN</div>'
+            f'{message}'
             f'</div>'
         )
         self.scroll_to_bottom()
+    
+    def update_message_counter(self):
+        """Update the message counter in the UI"""
+        if hasattr(self, 'message_counter'):
+            self.message_counter.setText(f"{self.total_messages} mensajes")
     
     def scroll_to_bottom(self):
         """Scroll chat display to the bottom"""
@@ -2064,20 +2665,21 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
     def on_model_changed(self):
         """Handle model selection change"""
         model = self.model_selector.currentText()
-        self.add_system_message(f"Switched to {model}")
+        self.add_system_message(f"Cambiado a modelo {model}")
+        self.update_status_indicators()
         
         # Check if selected model is available
         if model == "ChatGPT" and not self.chatgpt_service.is_available():
             QMessageBox.warning(
                 self,
-                "ChatGPT Not Available",
-                "ChatGPT API key not configured.\n\nPlease set OPENAI_API_KEY in the .env file."
+                "ChatGPT No Disponible",
+                "La clave API de ChatGPT no está configurada.\n\nPor favor, establece OPENAI_API_KEY en el archivo .env."
             )
         elif model == "Ollama" and not self.ollama_service.is_available():
             QMessageBox.warning(
                 self,
-                "Ollama Not Available",
-                "Ollama is not running.\n\nPlease start Ollama with: ollama serve"
+                "Ollama No Disponible",
+                "Ollama no está ejecutándose.\n\nPor favor, inicia Ollama con: ollama serve"
             )
     
     @Slot()
@@ -2461,56 +3063,59 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
         
         if self.camera_preview_active:
             # Preview activated
-            self.camera_toggle_btn.setText("⏸️ Pausar Preview")
+            self.camera_toggle_btn.setText("⏸️ Pausar")
             self.camera_toggle_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #ff9800;
+                    background-color: #e67e22;
                     color: white;
                     border: none;
-                    padding: 8px;
-                    border-radius: 4px;
-                    font-weight: bold;
-                    font-size: 13px;
+                    padding: 10px 18px;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    font-size: 11pt;
                 }
                 QPushButton:hover {
-                    background-color: #e68900;
+                    background-color: #d35400;
                 }
                 QPushButton:pressed {
-                    background-color: #cc7a00;
+                    background-color: #ba4a00;
                 }
             """)
-            self.add_system_message("📹 Preview de cámara activado (YOLO sigue activo)")
+            self.add_system_message("📹 Preview de cámara activado")
+            self.update_status_indicators()
         else:
             # Preview paused
-            self.camera_toggle_btn.setText("▶️ Activar Preview")
+            self.camera_toggle_btn.setText("▶️ Activar")
             self.camera_toggle_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #4CAF50;
+                    background-color: #27ae60;
                     color: white;
                     border: none;
-                    padding: 8px;
-                    border-radius: 4px;
-                    font-weight: bold;
-                    font-size: 13px;
+                    padding: 10px 18px;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    font-size: 11pt;
                 }
                 QPushButton:hover {
-                    background-color: #45a049;
+                    background-color: #229954;
                 }
                 QPushButton:pressed {
-                    background-color: #3d8b40;
+                    background-color: #1e8449;
                 }
             """)
-            self.video_label.setText("Preview pausado\n\n✅ YOLO sigue detectando objetos\n🎤 Audio optimizado\n\n'¿Qué ves?' funcionará normalmente\n\nClick 'Activar Preview' para ver el video")
+            self.video_label.setText("⏸️ Preview Pausado\n\n✅ YOLO activo en segundo plano\n🎤 Audio optimizado\n\nClick '▶️ Activar' para ver el video")
             self.video_label.setStyleSheet("""
                 QLabel {
-                    background-color: #000;
-                    color: #888;
-                    border: 2px solid #ddd;
-                    border-radius: 5px;
-                    font-size: 13px;
+                    background-color: #1a1a1a;
+                    color: #95a5a6;
+                    border: 2px solid #34495e;
+                    border-radius: 10px;
+                    font-size: 11pt;
+                    padding: 20px;
                 }
             """)
-            self.add_system_message("⏸️ Preview pausado (YOLO activo en background, audio optimizado)")
+            self.add_system_message("⏸️ Preview pausado (YOLO sigue activo)")
+            self.update_status_indicators()
     
     def on_tts_engine_changed(self, index):
         """Handle TTS engine selection change"""

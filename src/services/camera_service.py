@@ -97,6 +97,15 @@ class CameraService:
         self.is_running = False
         logger.info("Camera stopped")
     
+    def is_available(self) -> bool:
+        """
+        Check if camera is available and running
+        
+        Returns:
+            True if camera is available and running, False otherwise
+        """
+        return self.is_running and self.camera is not None and self.camera.isOpened()
+    
     def load_yolo_model(self, model_name: str = "yolov8n.pt") -> bool:
         """
         Load YOLO model
