@@ -1,28 +1,54 @@
-PySide6==6.6.0
-openai==1.3.0
-requests==2.31.0
-python-dotenv==1.0.0
-opencv-python==4.8.1.78
-ultralytics==8.0.196
-torch==2.1.0
-torchvision==0.16.0
-numpy==1.24.3
-SpeechRecognition==3.10.0
-pyttsx3==2.90
-PyAudio==0.2.13
-groq==0.32.0
+# ============================================================
+# Frankeinstein AI Robot - Core Dependencies
+# ============================================================
+# Install with: pip install -r requirements.txt
+#
+# For Raspberry Pi hardware support, also install:
+#   pip install -r requirements-rpi.txt
+#
+# For audio support (requires system deps), see README.md
+# ============================================================
 
-# Google TTS (optional, for better voice quality)
-gTTS==2.5.0
-pygame==2.5.2
+# GUI
+PySide6>=6.6.0
 
-# Face tracking with MediaPipe
-mediapipe==0.10.14
-opencv-contrib-python==4.12.0.88
+# LLM APIs
+openai>=1.3.0
+groq>=0.32.0
+requests>=2.31.0
+python-dotenv>=1.0.0
 
-# Servo motor control libraries
-RPi.GPIO==0.7.1
-gpiozero==2.0.1
-pigpio==1.78
-adafruit-circuitpython-servokit==1.3.21
-adafruit-pca9685==1.0.1
+# Computer Vision & AI
+# NOTE: Use EITHER opencv-python OR opencv-contrib-python, NOT both!
+opencv-contrib-python>=4.12.0  # Includes contrib modules (MediaPipe compatible)
+ultralytics>=8.0.196
+torch>=2.1.0
+torchvision>=0.16.0
+numpy>=1.24.3,<2.0.0
+mediapipe>=0.10.14
+
+# Audio & Speech
+SpeechRecognition>=3.10.0
+pyttsx3>=2.90
+# PyAudio requires system dependencies:
+#   Ubuntu/Debian: sudo apt-get install portaudio19-dev python3-pyaudio
+#   macOS: brew install portaudio
+#   Windows: pip install pipwin && pipwin install pyaudio
+PyAudio>=0.2.13
+
+# Google TTS (optional, for better voice quality - requires internet)
+gTTS>=2.5.0
+pygame>=2.5.2
+
+# ============================================================
+# Raspberry Pi Hardware Support (OPTIONAL)
+# ============================================================
+# Uncomment these if running on Raspberry Pi with servos:
+# RPi.GPIO==0.7.1
+# gpiozero==2.0.1
+# pigpio==1.78
+# adafruit-circuitpython-servokit==1.3.21
+# adafruit-pca9685==1.0.1
+#
+# Or install separately with:
+#   pip install RPi.GPIO gpiozero pigpio adafruit-circuitpython-servokit

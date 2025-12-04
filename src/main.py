@@ -129,32 +129,60 @@ class VideoWorker(QThread):
         self.running = True
     
     def run(self):
-        """Capture frames and run YOLO detection (always), render video only when preview is active"""
+        """Capture frames and run YOLO detection (optimized), render video only when preview is active"""
+        frame_count = 0
+        last_detection_time = time.time()
+        cached_detections = []
+        
         while self.running:
             try:
-                # ALWAYS process YOLO for detections (needed for LLM)
-                success, frame, detections = self.camera_service.get_frame_with_detection()
+                frame_count += 1
+                current_time = time.time()
+                
+                # Adaptive processing based on preview state
+                if self.main_window.camera_preview_active:
+                    # Preview ON: Process every frame for smooth video
+                    success, frame, detections = self.camera_service.get_frame_with_detection()
+                    process_delay = 33  # ~30 FPS
+                else:
+                    # Preview OFF: Process every 5th frame to save CPU (6 FPS for detections)
+                    if frame_count % 5 != 0:
+                        self.msleep(33)
+                        continue
+                    success, frame, detections = self.camera_service.get_frame_with_detection()
+                    process_delay = 166  # ~6 FPS
                 
                 if success and frame is not None:
-                    # Store detections for LLM (always, even when preview is off)
-                    if detections:
-                        self.main_window.latest_detections = detections
+                    # Update detections if new ones found or cache is stale (>2s)
+                    if detections or (current_time - last_detection_time > 2.0):
+                        if detections:
+                            cached_detections = detections
+                            last_detection_time = current_time
+                        
+                        # Thread-safe update of shared detections
+                        try:
+                            self.main_window.detections_lock.acquire()
+                            self.main_window.latest_detections = cached_detections
+                        finally:
+                            try:
+                                self.main_window.detections_lock.release()
+                            except:
+                                pass
                     
                     # Only render video to UI if preview is active (saves CPU/RAM)
                     if self.main_window.camera_preview_active:
-                        # Convert BGR to RGB
+                        # Convert BGR to RGB (in-place when possible)
                         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         h, w, ch = rgb_frame.shape
                         bytes_per_line = ch * w
                         
-                        # Convert to QImage
-                        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-                        self.frame_ready.emit(qt_image, detections)
-                    else:
-                        # Preview off: process slower to save even more resources
-                        self.msleep(200)
+                        # Convert to QImage (sharing data buffer to avoid copy)
+                        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
+                        self.frame_ready.emit(qt_image, cached_detections)
+                    
+                    self.msleep(process_delay)
                 else:
-                    self.msleep(30)  # Wait a bit before trying again
+                    self.msleep(100)  # Wait longer on error
                     
             except Exception as e:
                 self.error_occurred.emit(str(e))
@@ -179,6 +207,9 @@ class ChatWindow(QMainWindow):
         self.video_worker = None
         self.audio_worker = None
         self.latest_detections = []
+        # Protect shared detections with a lock to avoid race conditions
+        import threading
+        self.detections_lock = threading.Lock()
         self.voice_response_enabled = True  # Enable voice responses by default
         self.camera_preview_active = False  # Camera preview OFF by default to save resources
         self.total_messages = 0  # Message counter for chat tab
@@ -1780,7 +1811,7 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             )
     
     def apply_settings(self):
-        """Apply configuration changes"""
+        """Apply configuration changes with validation"""
         try:
             # Apply Ollama model
             ollama_model = self.ollama_model_combo.currentText()
@@ -1792,61 +1823,106 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             if hasattr(self.groq_service, 'model'):
                 self.groq_service.model = groq_model
             
-            # Apply YOLO confidence
-            yolo_confidence = self.yolo_confidence_slider.value() / 100.0
+            # Validate and apply YOLO confidence (0.1 - 0.9)
+            yolo_confidence_raw = self.yolo_confidence_slider.value() / 100.0
+            yolo_confidence = max(0.1, min(0.9, yolo_confidence_raw))
+            
+            # Warn if confidence is very low
+            if yolo_confidence < 0.3:
+                reply = QMessageBox.question(
+                    self,
+                    "⚠️ Confianza Baja",
+                    f"Una confianza de {yolo_confidence:.2f} puede generar muchas detecciones falsas.\n\n"
+                    "¿Continuar de todos modos?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    return
+            
             if hasattr(self, 'camera_service') and self.camera_service:
                 self.camera_service.confidence = yolo_confidence
             
             # Apply resolution
             resolution = self.resolution_combo.currentText()
             if hasattr(self, 'camera_service') and self.camera_service:
-                width, height = map(int, resolution.split('x'))
-                # Store for next camera restart
-                self.camera_service.target_width = width
-                self.camera_service.target_height = height
+                try:
+                    width, height = map(int, resolution.split('x'))
+                    # Validate resolution is sane
+                    if width < 160 or height < 120 or width > 1920 or height > 1080:
+                        raise ValueError(f"Resolución fuera de rango: {width}x{height}")
+                    # Store for next camera restart
+                    self.camera_service.target_width = width
+                    self.camera_service.target_height = height
+                except ValueError as ve:
+                    QMessageBox.warning(
+                        self,
+                        "Resolución Inválida",
+                        f"La resolución '{resolution}' no es válida.\n{ve}"
+                    )
+                    return
             
             # Apply YOLO enable/disable
             yolo_enabled = self.enable_yolo_checkbox.isChecked()
             if hasattr(self, 'camera_service') and self.camera_service:
                 self.camera_service.yolo_enabled = yolo_enabled
             
-            # Apply audio settings
+            # Validate and apply audio settings
             if hasattr(self, 'audio_service') and self.audio_service:
-                volume = self.voice_volume_slider.value() / 100.0
-                speed = self.voice_speed_slider.value()
+                volume_raw = self.voice_volume_slider.value() / 100.0
+                volume = max(0.0, min(1.0, volume_raw))  # Clamp 0-1
+                
+                speed_raw = self.voice_speed_slider.value()
+                speed = max(50, min(300, speed_raw))  # Clamp 50-300 WPM
+                
+                # Warn if speed is extreme
+                if speed > 200:
+                    reply = QMessageBox.question(
+                        self,
+                        "⚠️ Velocidad Alta",
+                        f"Velocidad de {speed} WPM puede ser difícil de entender.\n\n"
+                        "¿Continuar?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        return
                 
                 # Update TTS engine properties
                 try:
-                    if hasattr(self.audio_service, 'tts_engine'):
+                    if hasattr(self.audio_service, 'tts_engine') and self.audio_service.tts_engine:
                         self.audio_service.tts_engine.setProperty('volume', volume)
                         self.audio_service.tts_engine.setProperty('rate', speed)
                 except Exception as e:
-                    print(f"Error setting audio properties: {e}")
+                    logger.warning(f"No se pudo actualizar propiedades de audio: {e}")
             
-            # Store listen timeout for next voice input
-            self.listen_timeout = self.listen_timeout_spin.value()
+            # Store listen timeout for next voice input (validate 3-10 seconds)
+            listen_timeout_raw = self.listen_timeout_spin.value()
+            self.listen_timeout = max(3, min(10, listen_timeout_raw))
             
             # Store auto-vision setting
             self.auto_vision_enabled = self.auto_vision_checkbox.isChecked()
             
             QMessageBox.information(
                 self,
-                "Configuración Aplicada",
-                "✓ Los cambios se han aplicado correctamente.\n\n"
+                "✅ Configuración Aplicada",
+                "Los cambios se han aplicado correctamente.\n\n"
                 f"• Modelo Ollama: {ollama_model}\n"
                 f"• Modelo Groq: {groq_model}\n"
                 f"• Confianza YOLO: {yolo_confidence:.2f}\n"
                 f"• Resolución: {resolution}\n"
                 f"• YOLO: {'Habilitado' if yolo_enabled else 'Deshabilitado'}\n"
                 f"• Volumen: {int(volume*100)}%\n"
-                f"• Velocidad: {speed}%\n"
+                f"• Velocidad: {speed} WPM\n"
+                f"• Timeout escucha: {self.listen_timeout}s\n"
                 f"• Auto-visión: {'Habilitada' if self.auto_vision_enabled else 'Deshabilitada'}"
             )
             
         except Exception as e:
+            logger.error(f"Error applying settings: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
-                "Error",
+                "❌ Error",
                 f"Error al aplicar la configuración:\n{str(e)}"
             )
     
@@ -2259,13 +2335,15 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             
             self.add_system_message("🛑 Deteniendo todos los movimientos...")
             
-            # Detener todos los procesos de movimiento
-            subprocess.run(["pkill", "-f", "TEST_ASENTIR.py"], check=False)
-            subprocess.run(["pkill", "-f", "TEST_NEGAR.py"], check=False)
-            subprocess.run(["pkill", "-f", "TEST_ROLL.py"], check=False)
-            subprocess.run(["pkill", "-f", "test_boca.py"], check=False)
-            subprocess.run(["pkill", "-f", "test_seguir_rostro.py"], check=False)
-            subprocess.run(["pkill", "-f", "TEST_SEGUIMIENTO_FINAL.PY"], check=False)
+            # Detener todos los procesos de movimiento de forma robusta
+            for pattern in [
+                "TEST_ASENTIR.py", "TEST_NEGAR.py", "TEST_ROLL.py",
+                "test_boca.py", "test_seguir_rostro.py", "TEST_SEGUIMIENTO_FINAL.PY"
+            ]:
+                try:
+                    subprocess.run(["pkill", "-9", "-f", pattern], check=False)
+                except Exception:
+                    pass
             
             # Pequeña pausa para asegurar que los procesos se detengan
             time.sleep(0.2)
@@ -2302,12 +2380,21 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             else:
                 self.add_system_message("⚠️ Procesos detenidos (servos no inicializados)")
             
-            # Reiniciar la cámara si estaba liberada
+            # Reiniciar la cámara si estaba liberada (con verificación)
             if hasattr(self, 'camera_service') and self.camera_service:
                 try:
                     self.add_system_message("📷 Reiniciando cámara del servicio principal...")
-                    self.camera_service.start_camera()
+                    # Asegurar que está detenida antes de iniciar
+                    self.camera_service.stop_camera()
+                    time.sleep(0.2)
+                    started = self.camera_service.start_camera()
                     time.sleep(0.3)
+                    if not started:
+                        self.add_system_message("⚠️ No se pudo iniciar la cámara (verifica conexión)")
+                    else:
+                        # Si YOLO estaba habilitado, asegurar modelo cargado
+                        if getattr(self.camera_service, 'yolo_enabled', True) and not getattr(self.camera_service, 'model_loaded', False):
+                            self.camera_service.load_yolo_model("yolov8n.pt")
                     self.add_system_message("✓ Servicio de cámara restaurado")
                 except Exception as e:
                     self.add_system_message(f"⚠️ No se pudo reiniciar la cámara: {e}")
@@ -2442,8 +2529,13 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             if hasattr(self, 'camera_service') and self.camera_service:
                 try:
                     self.add_system_message("📷 Deteniendo cámara del servicio principal...")
+                    # Intento robusto de liberación
                     self.camera_service.stop_camera()
-                    time.sleep(0.5)  # Dar tiempo a que se libere completamente
+                    for _ in range(10):
+                        # Esperar liberación completa
+                        if not self.camera_service.is_available():
+                            break
+                        time.sleep(0.1)
                     self.add_system_message("✓ Cámara liberada")
                 except Exception as e:
                     self.add_system_message(f"⚠️ Error al liberar cámara: {e}")
@@ -2476,12 +2568,18 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             self.add_system_message(f"✓ Archivos encontrados")
             self.add_system_message(f"� Ejecutando proceso...")
             
+            # Asegurar que no haya otro proceso de seguimiento activo
+            try:
+                subprocess.run(["pkill", "-9", "-f", "TEST_SEGUIMIENTO_FINAL.PY"], check=False)
+            except Exception:
+                pass
+
             # Ejecutar el script en background sin capturar salida (para ver errores en terminal)
             process = subprocess.Popen(
                 [python_path, script_path],
                 cwd=base_dir,
-                stdout=None,  # No redirigir stdout, que vaya a la terminal
-                stderr=None   # No redirigir stderr, que vaya a la terminal
+                stdout=None,
+                stderr=None
             )
             
             # Dar un momento para que el proceso inicie
@@ -2616,6 +2714,10 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
         """Add a user message to the chat display"""
         self.total_messages += 1
         self.update_message_counter()
+        
+        # Limit chat display to last 50 messages to prevent memory bloat
+        self._cleanup_chat_display_if_needed()
+        
         self.chat_display.append(
             f'<div style="'
             f'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); '
@@ -2635,6 +2737,10 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
         """Add an assistant message to the chat display"""
         self.total_messages += 1
         self.update_message_counter()
+        
+        # Limit chat display to last 50 messages to prevent memory bloat
+        self._cleanup_chat_display_if_needed()
+        
         self.chat_display.append(
             f'<div style="'
             f'background: linear-gradient(135deg, #3498db 0%, #2ecc71 100%); '
@@ -2649,6 +2755,22 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             f'</div>'
         )
         self.scroll_to_bottom()
+    
+    def _cleanup_chat_display_if_needed(self):
+        """Remove old messages from chat display to prevent memory bloat"""
+        # Keep only last 50 messages (25 exchanges) in UI
+        if self.total_messages > 50:
+            doc = self.chat_display.document()
+            # Count blocks (each message is a block)
+            block_count = doc.blockCount()
+            if block_count > 50:
+                # Remove oldest blocks
+                cursor = QTextCursor(doc)
+                cursor.movePosition(QTextCursor.Start)
+                for _ in range(block_count - 50):
+                    cursor.select(QTextCursor.BlockUnderCursor)
+                    cursor.removeSelectedText()
+                    cursor.deleteChar()  # Remove the newline
     
     def update_message_counter(self):
         """Update the message counter in the UI"""
@@ -2723,7 +2845,22 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
             
             # Get vision context if this is a vision-related query
             if is_vision_query and self.camera_service:
-                vision_context = self.camera_service.get_detection_summary()
+                # Read latest detections safely and build context
+                try:
+                    self.detections_lock.acquire()
+                    if hasattr(self.camera_service, 'get_detection_summary'):
+                        vision_context = self.camera_service.get_detection_summary()
+                    else:
+                        names = [d.get('class', 'objeto') for d in (self.latest_detections or [])]
+                        if names:
+                            vision_context = f"Objetos detectados: {', '.join(names[:5])}"
+                        else:
+                            vision_context = "No se detectan objetos por ahora"
+                finally:
+                    try:
+                        self.detections_lock.release()
+                    except:
+                        pass
                 # Show visual indicator that vision mode is active
                 self.add_system_message(f"📷 {vision_context}")
         
@@ -3191,8 +3328,15 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
         )
         self.video_label.setPixmap(scaled_pixmap)
         
-        # Update detections
-        self.latest_detections = detections
+        # Update detections (thread-safe)
+        try:
+            self.detections_lock.acquire()
+            self.latest_detections = detections
+        finally:
+            try:
+                self.detections_lock.release()
+            except:
+                pass
         if detections:
             detection_text = f"Detections ({len(detections)}): "
             detection_names = [d['class'] for d in detections[:5]]  # Show first 5

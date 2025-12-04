@@ -1,0 +1,21 @@
+# ============================================================
+# Frankeinstein AI Robot - Raspberry Pi Dependencies
+# ============================================================
+# Install ONLY on Raspberry Pi with hardware servos
+# ============================================================
+#
+# Installation:
+#   pip install -r requirements-rpi.txt
+#
+# These packages are for GPIO/servo control and will fail
+# on non-Raspberry Pi systems.
+# ============================================================
+
+# GPIO & Servo Control
+RPi.GPIO==0.7.1
+gpiozero==2.0.1
+pigpio==1.78
+
+# I2C Servo Control (PCA9685)
+adafruit-circuitpython-servokit==1.3.21
+adafruit-pca9685==1.0.1

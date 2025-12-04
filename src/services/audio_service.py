@@ -123,8 +123,8 @@ class AudioService:
             with sr.Microphone() as source:
                 logger.info("Listening...")
                 
-                # Adjust for ambient noise
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                # Adjust for ambient noise (reduced duration for faster startup)
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.3)
                 
                 # Listen for audio
                 try:

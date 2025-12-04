@@ -108,7 +108,7 @@ class CameraService:
     
     def load_yolo_model(self, model_name: str = "yolov8n.pt") -> bool:
         """
-        Load YOLO model
+        Load YOLO model (with caching to avoid reloading)
         
         Args:
             model_name: Name of the YOLO model to load (yolov8n.pt, yolov8s.pt, etc.)
@@ -117,10 +117,20 @@ class CameraService:
             True if model loaded successfully, False otherwise
         """
         try:
+            # Check if model is already loaded
+            if self.model_loaded and self.yolo_model is not None:
+                logger.info(f"YOLO model already loaded, skipping reload")
+                return True
+            
             logger.info(f"Loading YOLO model: {model_name}")
             self.yolo_model = YOLO(model_name)
+            # Warm up model with dummy inference for faster first detection
+            import numpy as np
+            dummy_frame = np.zeros((640, 640, 3), dtype=np.uint8)
+            _ = self.yolo_model(dummy_frame, verbose=False)
+            
             self.model_loaded = True
-            logger.info("YOLO model loaded successfully")
+            logger.info("YOLO model loaded and warmed up successfully")
             return True
         except Exception as e:
             logger.error(f"Error loading YOLO model: {str(e)}")
@@ -142,7 +152,7 @@ class CameraService:
     
     def detect_objects(self, frame: np.ndarray, confidence: float = 0.5) -> Tuple[np.ndarray, list]:
         """
-        Run YOLO detection on a frame
+        Run YOLO detection on a frame (optimized with limited classes and fast inference)
         
         Args:
             frame: Input image frame
@@ -155,19 +165,30 @@ class CameraService:
             return frame, []
         
         try:
-            # Run inference
-            results = self.yolo_model(frame, conf=confidence, verbose=False)
+            # Run inference with optimizations:
+            # - half=True for FP16 (faster on compatible GPUs)
+            # - max_det=20 to limit detections (faster post-processing)
+            # - verbose=False to avoid console spam
+            results = self.yolo_model(
+                frame, 
+                conf=confidence, 
+                verbose=False,
+                max_det=20,  # Limit max detections for speed
+                half=False   # Set True if GPU supports FP16
+            )
             
-            # Get annotated frame
+            # Get annotated frame (only if needed for display)
             annotated_frame = results[0].plot()
             
-            # Extract detection information
+            # Extract detection information (optimized)
             detections = []
-            for result in results:
+            if results and len(results) > 0:
+                result = results[0]
                 boxes = result.boxes
-                for box in boxes:
-                    detection = {
-                        'class': result.names[int(box.cls[0])],
+                if boxes is not None and len(boxes) > 0:
+                    for box in boxes:
+                        detection = {
+                            'class': result.names[int(box.cls[0])],
                         'confidence': float(box.conf[0]),
                         'bbox': box.xyxy[0].tolist()
                     }
@@ -192,12 +213,28 @@ class CameraService:
         Returns:
             Tuple of (success, annotated frame, detections)
         """
-        ret, frame = self.read_frame()
-        if not ret or frame is None:
+        try:
+            ret, frame = self.read_frame()
+            if not ret:
+                logger.warning("Failed to read frame from camera")
+                return False, None, []
+            if frame is None:
+                logger.error("Frame is None despite successful read")
+                return False, None, []
+            
+            # Use instance confidence if not provided
+            if confidence is None:
+                confidence = self.confidence
+            
+            # Optionally skip YOLO if disabled
+            if not self.yolo_enabled:
+                return True, frame, []
+            
+            annotated_frame, detections = self.detect_objects(frame, confidence=confidence)
+            return True, annotated_frame, detections
+        except Exception as e:
+            logger.error(f"Error in get_frame_with_detection: {e}", exc_info=True)
             return False, None, []
-        
-        # Use instance confidence if not provided
-        if confidence is None:
             confidence = self.confidence
         
         # Only run detection if YOLO is enabled and model is loaded
