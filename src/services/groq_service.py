@@ -4,10 +4,14 @@ Groq service for fast LLM inference
 import os
 from groq import Groq
 from typing import Optional
-import logging
+import sys
+from pathlib import Path
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class GroqService:
@@ -70,6 +74,8 @@ Pregunta: {message}"""
             if not messages or messages[0].get("role") != "system":
                 messages.insert(0, {"role": "system", "content": self.system_prompt})
             
+            logger.debug(f"Sending message to Groq (model: {self.model}, length: {len(message)} chars)")
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -77,10 +83,13 @@ Pregunta: {message}"""
                 temperature=0.7
             )
             
-            return response.choices[0].message.content
+            response_text = response.choices[0].message.content
+            logger.info(f"Groq response received (length: {len(response_text)} chars)")
+            return response_text
         
         except Exception as e:
             error_str = str(e)
+            logger.error(f"Error communicating with Groq: {error_str}")
             
             # Handle specific errors
             if "rate_limit" in error_str.lower() or "429" in error_str:

@@ -3,14 +3,18 @@ Audio service for speech recognition and text-to-speech
 """
 import speech_recognition as sr
 import pyttsx3
-import logging
 from typing import Optional, Tuple
 import threading
 import os
 import tempfile
+import sys
+from pathlib import Path
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Try to import Google TTS (optional dependency)
 try:
@@ -137,18 +141,18 @@ class AudioService:
                     logger.warning("Listening timeout - no speech detected")
                     return False, "No speech detected (timeout)"
                 
-                logger.info("Processing audio...")
+                logger.debug("Processing audio...")
                 
                 # Try to recognize speech using Google Speech Recognition
                 try:
                     # Try Spanish first, then English
                     try:
                         text = self.recognizer.recognize_google(audio, language='es-ES')
-                        logger.info(f"Recognized (Spanish): {text}")
+                        logger.info(f"Speech recognized (ES): '{text}'")
                         return True, text
                     except:
                         text = self.recognizer.recognize_google(audio, language='en-US')
-                        logger.info(f"Recognized (English): {text}")
+                        logger.info(f"Speech recognized (EN): '{text}'")
                         return True, text
                 
                 except sr.UnknownValueError:
@@ -194,9 +198,9 @@ class AudioService:
                     self.tts_engine.say(text)
                     self.tts_engine.runAndWait()
                     self.is_speaking = False
-                    logger.info("Finished speaking")
+                    logger.debug("Finished speaking (pyttsx3)")
                 except Exception as e:
-                    logger.error(f"Error during pyttsx3 TTS: {str(e)}")
+                    logger.error(f"Error during pyttsx3 TTS: {str(e)}", exc_info=True)
                     self.is_speaking = False
         
         if blocking:

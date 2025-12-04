@@ -5,6 +5,14 @@ import os
 from openai import OpenAI
 import requests
 from typing import Optional
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ChatGPTService:
@@ -55,6 +63,8 @@ Basándote en esta información de la cámara, responde a la siguiente pregunta 
             if not messages or messages[0].get("role") != "system":
                 messages.insert(0, {"role": "system", "content": self.system_prompt})
             
+            logger.debug(f"Sending message to ChatGPT (length: {len(message)} chars)")
+            
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=messages,
@@ -62,9 +72,12 @@ Basándote en esta información de la cámara, responde a la siguiente pregunta 
                 temperature=0.7
             )
             
-            return response.choices[0].message.content
+            response_text = response.choices[0].message.content
+            logger.info(f"ChatGPT response received (length: {len(response_text)} chars)")
+            return response_text
         
         except Exception as e:
+            logger.error(f"Error communicating with ChatGPT: {str(e)}", exc_info=True)
             return f"Error communicating with ChatGPT: {str(e)}"
 
 
@@ -132,6 +145,8 @@ Pregunta: {message}"""
                 "stream": False
             }
             
+            logger.debug(f"Sending message to Ollama (model: {self.model}, length: {len(message)} chars)")
+            
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json=payload,
@@ -139,11 +154,16 @@ Pregunta: {message}"""
             )
             
             if response.status_code == 200:
-                return response.json().get("response", "No response received")
+                response_text = response.json().get("response", "No response received")
+                logger.info(f"Ollama response received (length: {len(response_text)} chars)")
+                return response_text
             else:
+                logger.error(f"Ollama returned status code {response.status_code}")
                 return f"Error: Ollama returned status code {response.status_code}"
         
         except requests.exceptions.Timeout:
+            logger.warning("Ollama request timed out")
             return "Error: Request timed out. The model might be too slow or not responding."
         except Exception as e:
+            logger.error(f"Error communicating with Ollama: {str(e)}", exc_info=True)
             return f"Error communicating with Ollama: {str(e)}"

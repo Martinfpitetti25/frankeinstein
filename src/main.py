@@ -25,10 +25,10 @@ import numpy as np
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 from services import ChatGPTService, OllamaService, GroqService, CameraService, AudioService, ServoService
+from utils.logger import get_logger
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Setup logging with rotation
+logger = get_logger(__name__)
 
 
 class NoScrollComboBox(QComboBox):
@@ -360,6 +360,7 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
     
     def init_ui(self):
         """Initialize the user interface"""
+        logger.info("Initializing UI - Frankeinstein AI Assistant")
         self.setWindowTitle("Frankeinstein AI Assistant")
         self.setGeometry(100, 100, 1400, 800)
         
@@ -1761,7 +1762,7 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
                 self.chatgpt_api_key_input.setText(chatgpt_key)
                 
         except Exception as e:
-            print(f"Error loading settings: {e}")
+            logger.error(f"Error loading settings: {e}", exc_info=True)
     
     def save_api_keys(self):
         """Save API keys to .env file"""
@@ -1893,8 +1894,9 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
                     if hasattr(self.audio_service, 'tts_engine') and self.audio_service.tts_engine:
                         self.audio_service.tts_engine.setProperty('volume', volume)
                         self.audio_service.tts_engine.setProperty('rate', speed)
+                        logger.info(f"Audio settings updated: volume={volume:.2f}, speed={speed} WPM")
                 except Exception as e:
-                    logger.warning(f"No se pudo actualizar propiedades de audio: {e}")
+                    logger.warning(f"No se pudo actualizar propiedades de audio: {e}", exc_info=True)
             
             # Store listen timeout for next voice input (validate 3-10 seconds)
             listen_timeout_raw = self.listen_timeout_spin.value()
@@ -2510,7 +2512,7 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
         # 3. Use YOLO to detect objects
         # 4. When found, stop and center on object
         # 5. Announce by voice: "Encontré [objeto]"
-        print("Demo IA: Buscar objeto")
+        logger.info("Demo IA: Buscar objeto - iniciando")
         QMessageBox.information(
             self,
             "Demo IA - Buscar Objeto",
@@ -2610,7 +2612,7 @@ Eres curioso, útil, expresivo y siempre dispuesto a ayudar. ¡Haz que la intera
         # 4. Describe scene using LLM + YOLO data
         # 5. Track detected person
         # 6. Answer a question about the environment
-        print("Demo IA: Demostración completa")
+        logger.info("Demo IA: Demostración completa - iniciando")
         QMessageBox.information(
             self,
             "Demo IA - Completa",
@@ -3393,7 +3395,7 @@ def main():
     
     # Manejar Ctrl+C para detener servos
     def signal_handler(sig, frame):
-        print("\n⚠️ Ctrl+C detectado - Deteniendo servos...")
+        logger.warning("Ctrl+C detectado - Deteniendo servos...")
         try:
             # Detener todos los procesos de servos
             import subprocess
@@ -3405,9 +3407,9 @@ def main():
             if window.servo_service and window.servo_service.is_initialized:
                 window.servo_service.move_to_center()
         except Exception as e:
-            print(f"Error al detener servos: {e}")
+            logger.error(f"Error al detener servos: {e}", exc_info=True)
         
-        print("✅ Finalizando aplicación...")
+        logger.info("Finalizando aplicación...")
         app.quit()
         sys.exit(0)
     

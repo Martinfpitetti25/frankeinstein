@@ -2,12 +2,16 @@
 Servo motor control service for robot head movement
 Supports multiple control methods: GPIO PWM, pigpio, and PCA9685
 """
-import logging
 from typing import Optional, Tuple
 import time
+import sys
+from pathlib import Path
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ServoService:
@@ -110,8 +114,8 @@ class ServoService:
                 self.servo_horizontal = self.kit.servo[horizontal_pin]  # Channel number
                 self.servo_vertical = self.kit.servo[vertical_pin]      # Channel number
                 
-                logger.info(f"PCA9685 servos initialized on channels {horizontal_pin}, {vertical_pin}")
-                logger.info(f"PWM safety margins applied: {self.PWM_MIN_SAFE}-{self.PWM_MAX_SAFE}μs")
+                logger.info(f"PCA9685 servos initialized successfully (channels H:{horizontal_pin}, V:{vertical_pin})")
+                logger.debug(f"PWM safety margins: {self.PWM_MIN_SAFE}-{self.PWM_MAX_SAFE}μs")
             
             # Move to center position
             self.move_to_center()
@@ -167,13 +171,15 @@ class ServoService:
             # Update current position
             if servo == "horizontal":
                 self.current_horizontal = angle
+                logger.debug(f"Servo horizontal moved to {angle}°")
             else:
                 self.current_vertical = angle
+                logger.debug(f"Servo vertical moved to {angle}°")
             
             return True
             
         except Exception as e:
-            logger.error(f"Failed to set servo angle: {e}")
+            logger.error(f"Failed to set servo angle: {e}", exc_info=True)
             return False
     
     def _set_servo_angle(self, servo: str, angle: float):

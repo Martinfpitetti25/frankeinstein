@@ -5,10 +5,14 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 from typing import Optional, Tuple
-import logging
+import sys
+from pathlib import Path
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class CameraService:
@@ -86,7 +90,7 @@ class CameraService:
         self.camera.set(cv2.CAP_PROP_FPS, 30)
         
         self.is_running = True
-        logger.info(f"Camera started successfully at index {camera_index}")
+        logger.info(f"Camera started successfully at index {camera_index} (640x480@30fps)")
         return True
     
     def stop_camera(self):
@@ -197,10 +201,19 @@ class CameraService:
             # Store detections for vision integration
             self.last_detections = detections
             
+            # Log detection stats periodically (every 30th call to avoid spam)
+            if hasattr(self, '_detection_count'):
+                self._detection_count += 1
+            else:
+                self._detection_count = 1
+            
+            if self._detection_count % 30 == 0:
+                logger.debug(f"YOLO detected {len(detections)} objects (conf>{confidence:.2f})")
+            
             return annotated_frame, detections
         
         except Exception as e:
-            logger.error(f"Error during detection: {str(e)}")
+            logger.error(f"Error during detection: {str(e)}", exc_info=True)
             return frame, []
     
     def get_frame_with_detection(self, confidence: float = None) -> Tuple[bool, Optional[np.ndarray], list]:
