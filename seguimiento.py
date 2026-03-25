@@ -180,20 +180,30 @@ fps_t       = time.time()
 
 if not HEADLESS:
     cv2.namedWindow("Seguimiento ocular")
-    # OpenCV trackbars solo admiten enteros, las escalamos / 100
-    cv2.createTrackbar("KP", "Seguimiento ocular", int(KP * 100), 200, lambda x: None)
-    cv2.createTrackbar("KI", "Seguimiento ocular", int(KI * 1000), 100, lambda x: None)
-    cv2.createTrackbar("SMOOTH", "Seguimiento ocular", int(SMOOTH * 100), 100, lambda x: None)
+    # OpenCV trackbars solo admiten enteros:
+    # KP(0-200) -> 0.0 a 2.0
+    # KI(0-100) -> 0.0 a 0.1
+    # SMOOTH(0-100) -> 0.0 a 1.0
+    # OFFSET_X(0-80) -> -40 a +40 grados (para compensar el servo físico)
+    cv2.createTrackbar("KP (0-2.0)", "Seguimiento ocular", int(KP * 100), 200, lambda x: None)
+    cv2.createTrackbar("KI (0-0.1)", "Seguimiento ocular", int(KI * 1000), 100, lambda x: None)
+    cv2.createTrackbar("SMOOTH /100", "Seguimiento ocular", int(SMOOTH * 100), 100, lambda x: None)
+    cv2.createTrackbar("OFFSET_X+-40", "Seguimiento ocular", int(OFFSET_X + 40), 80, lambda x: None)
 
-# ──────────────────────────────────────────────
-# LOOP PRINCIPAL
-# ──────────────────────────────────────────────
+# ── LOOP PRINCIPAL ──
 try:
     while True:
         if not HEADLESS:
-            KP = cv2.getTrackbarPos("KP", "Seguimiento ocular") / 100.0
-            KI = cv2.getTrackbarPos("KI", "Seguimiento ocular") / 1000.0
-            SMOOTH = cv2.getTrackbarPos("SMOOTH", "Seguimiento ocular") / 100.0
+            new_KP = cv2.getTrackbarPos("KP (0-2.0)", "Seguimiento ocular") / 100.0
+            new_KI = cv2.getTrackbarPos("KI (0-0.1)", "Seguimiento ocular") / 1000.0
+            new_SM = cv2.getTrackbarPos("SMOOTH /100", "Seguimiento ocular") / 100.0
+            new_OX = cv2.getTrackbarPos("OFFSET_X+-40", "Seguimiento ocular") - 40
+            
+            # Autoguardado si algo cambió
+            if new_KP != KP or new_KI != KI or new_SM != SMOOTH or new_OX != OFFSET_X:
+                KP, KI, SMOOTH, OFFSET_X = new_KP, new_KI, new_SM, new_OX
+                with open(CONFIG_FILE, "w") as f:
+                    json.dump({"KP": KP, "KI": KI, "SMOOTH": SMOOTH, "OFFSET_X": OFFSET_X}, f, indent=2)
 
         ok, frame = cap.read()
         if not ok:
@@ -250,10 +260,10 @@ try:
 
             # ── Mapeo a ángulos ───────────────────────────────────────
             # Horizontal: ambos ojos igual (40=der, 120=izq)
-            #   ex>0 → cara a la izquierda → ojos izquierda → ángulo sube
+            # OFFSET_X corre todo el bloque de límites físicamente de ser necesario
             half_h = (LH["hi"] - LH["lo"]) / 2.0   # 40°
-            t_lh   = LH["mid"] + pid_x * half_h
-            t_rh   = RH["mid"] + pid_x * half_h
+            t_lh   = LH["mid"] + OFFSET_X + pid_x * half_h
+            t_rh   = RH["mid"] + OFFSET_X + pid_x * half_h
 
             # Vertical: ejes OPUESTOS entre ojos
             #   ey>0 → cara arriba → ojos suben
@@ -278,7 +288,11 @@ try:
 
             if not HEADLESS:
                 cv2.putText(frame, f"Izq H{int(lh)} V{int(lv)}  Der H{int(rh)} V{int(rv)}",
-                            (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                            (15, frame.shape[0] - 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                cv2.putText(frame, f"CONFIG: KP={KP:.2f} | KI={KI:.3f} | SMOOTH={SMOOTH:.2f} | OFFSET_X={OFFSET_X}°",
+                            (15, frame.shape[0] - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.putText(frame, "(! Los cambios se auto-guardan)",
+                            (15, frame.shape[0] - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
 
             if frames % 10 == 0:
                 print(f"👤 IzqH={int(lh)}° IzqV={int(lv)}° | DerH={int(rh)}° DerV={int(rv)}°")
