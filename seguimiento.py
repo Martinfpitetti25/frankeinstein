@@ -121,9 +121,12 @@ if not cap.isOpened():
 _MODEL = pathlib.Path(__file__).parent / "models" / "yunet.onnx"
 _URL   = ("https://media.githubusercontent.com/media/opencv/opencv_zoo/main/"
           "models/face_detection_yunet/face_detection_yunet_2023mar.onnx")
-if not _MODEL.exists():
-    print("⬇️  Descargando modelo YuNet (primera vez)...")
+
+if not _MODEL.exists() or _MODEL.stat().st_size < 100000:
+    print("⬇️  Descargando modelo YuNet (puede tardar unos segundos)...")
     _MODEL.parent.mkdir(exist_ok=True)
+    if _MODEL.exists():
+        _MODEL.unlink()  # Borra el archivo corrupto
     urllib.request.urlretrieve(_URL, _MODEL)
     print("✅ Modelo guardado en models/yunet.onnx")
 
