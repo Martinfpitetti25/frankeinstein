@@ -37,21 +37,21 @@ PIN_LV = 1   # Ojo Izquierdo Vertical
 PIN_RH = 9   # Ojo Derecho Horizontal
 PIN_RV = 7   # Ojo Derecho Vertical
 
-PIN_PARPADO_INF =  3  # Párpado inferior (40=abierto, 85=cerrado)
-PIN_PARPADO_SUP =  5  # Párpado superior (40=abierto, 85=cerrado)
-PIN_CUELLO_YAW  =  4  # Cuello Yaw horizontal (50=Mirar Izq, 150=Mirar Der) [Etiqueta placa: PITCH]
-PIN_CUELLO_PITCH = 8  # Cuello Pitch vertical [Etiqueta placa: YAW]
-PIN_ROLL_1      = 10  # Roll 1 (Dejar en 50°)
-PIN_ROLL_2      =  6  # Roll 2 (Dejar en 50°)
+PIN_PARPADO_INF = 3   # Párpado inferior (40=abierto, 85=cerrado)
+PIN_PARPADO_SUP = 5   # Párpado superior (40=abierto, 85=cerrado)
+PIN_CUELLO_YAW  = 4   # Cuello Yaw horizontal [Etiqueta PITCH]
+PIN_CUELLO_PITCH = 8  # Cuello Pitch vertical [Etiqueta YAW]
+PIN_ROLL_1      = 10  # Roll 1 asimétrico
+PIN_ROLL_2      = 6   # Roll 2 asimétrico
 PARPADO_INF_ABIERTO = 40
-PARPADO_SUP_ABIERTO = 55
+PARPADO_SUP_ABIERTO = 65
 PARPADO_CERRADO = 95
 
 # Límites calibrados: dict con lo(mín), hi(máx), mid(centro)
-LH = dict(lo=40,  hi=130, mid=90)   # Izq Horizontal (80=Der, 140=Izq)
-LV = dict(lo=80,  hi=100, mid=90)   # Izq Vertical   (105=arriba, 85=abajo)
-RH = dict(lo=40,  hi=130, mid=90)   # Der Horizontal (80=Der, 140=Izq)
-RV = dict(lo=80,  hi=100, mid=90)   # Der Vertical   (70=arriba, 90=abajo) ← INVERTIDO
+LH = dict(lo=40,  hi=130, mid=90)  # Izq Horizontal (80=Der, 140=Izq)
+LV = dict(lo=80,  hi=105, mid=90)   # Izq Vertical   (105=arriba, 80=abajo)
+RH = dict(lo=40,  hi=130, mid=90)  # Der Horizontal (80=Der, 140=Izq)
+RV = dict(lo=80,  hi=100,  mid=90)   # Der Vertical   (70=arriba, 90=abajo) ← INVERTIDO
 CUELLO_YAW   = dict(lo=50, hi=150, mid=100) # Cuello horizontal
 CUELLO_PITCH = dict(lo=60, hi=180, mid=120) # Cuello vertical (Límites tomados del código original)
 
@@ -109,9 +109,9 @@ def init_servos():
 
 
 def center_all():
-    kit.servo[PIN_LH].angle = LH["mid"]
+    kit.servo[PIN_LH].angle = LH["mid"] + OFFSET_X
     kit.servo[PIN_LV].angle = LV["mid"]
-    kit.servo[PIN_RH].angle = RH["mid"]
+    kit.servo[PIN_RH].angle = RH["mid"] + OFFSET_X
     kit.servo[PIN_RV].angle = RV["mid"]
     kit.servo[PIN_CUELLO_YAW].angle = CUELLO_YAW["mid"]
     kit.servo[PIN_CUELLO_PITCH].angle = CUELLO_PITCH["mid"]
@@ -303,8 +303,7 @@ try:
             else:
                 # Si recién entra, pesca el rostro más prominente/cercano (según score)
                 best = faces[faces[:, 14].argmax()]
-                if tracked_face is None:
-                    face_first_seen_time = now  # Iniciar cronómetro de seguimiento continuo
+                face_first_seen_time = now  # Iniciar cronómetro de seguimiento continuo
 
             bx, by    = int(best[0]), int(best[1])
             bw, bh    = int(best[2]), int(best[3])
@@ -351,6 +350,8 @@ try:
             lh = SMOOTH * lh + (1 - SMOOTH) * t_lh
             lv = SMOOTH * lv + (1 - SMOOTH) * t_lv
             rh = SMOOTH * rh + (1 - SMOOTH) * t_rh
+            rv = SMOOTH * rv + (1 - SMOOTH) * t_rv
+
             # ── Cuello Lento (Yaw y Pitch) ──
             # Solo la cabeza empieza a moverse si miramos una cara por > 2.0s
             if (now - face_first_seen_time) > 2.0:
@@ -376,20 +377,21 @@ try:
 
         else:
             dt_lost = now_ms - last_seen
-
-            # ── Retorno al centro (> 4 s sin cara) ───────────────────
             if dt_lost > LOST_MS * 1.5:
                 # Pérdida real de fijación (se cambia de persona si aparece otra)
                 tracked_face = None
                 face_first_seen_time = 0.0
                 
+            # ── Retorno al centro (> 4 s sin cara) ───────────────────
             if dt_lost > RETURN_MS and not centered:
                 if not returning:
                     print("⏺️  Sin rostro → volviendo al centro...")
                     returning = True
 
-                dlh = LH["mid"] - lh;  dlv = LV["mid"] - lv
-                drh = RH["mid"] - rh;  drv = RV["mid"] - rv
+                dlh = (LH["mid"] + OFFSET_X) - lh
+                dlv = LV["mid"] - lv
+                drh = (RH["mid"] + OFFSET_X) - rh
+                drv = RV["mid"] - rv
                 dyaw   = CUELLO_YAW["mid"] - cuello_yaw_ang
                 dpitch = CUELLO_PITCH["mid"] - cuello_pitch_ang
 
@@ -403,8 +405,8 @@ try:
                     apply_eyes(lh, lv, rh, rv)
                 else:
                     center_all()
-                    lh, lv = float(LH["mid"]), float(LV["mid"])
-                    rh, rv = float(RH["mid"]), float(RV["mid"])
+                    lh, lv = float(LH["mid"] + OFFSET_X), float(LV["mid"])
+                    rh, rv = float(RH["mid"] + OFFSET_X), float(RV["mid"])
                     cuello_yaw_ang   = float(CUELLO_YAW["mid"])
                     cuello_pitch_ang = float(CUELLO_PITCH["mid"])
                     sum_ex = sum_ey = 0.0
