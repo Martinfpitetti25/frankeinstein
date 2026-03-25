@@ -90,7 +90,9 @@ def clamp(v, lo, hi):
 def init_servos():
     for pin in (PIN_LH, PIN_LV, PIN_RH, PIN_RV, PIN_PARPADO_INF, PIN_PARPADO_SUP):
         kit.servo[pin].actuation_range = 180
-        kit.servo[pin].set_pulse_width_range(650, 2000)
+        # Rango estándar de micro-servos (SG90/MG90S) = 500 a 2500 us.
+        # Si estaba en 650-2000, le estábamos "recortando" recorrido electrónico físico.
+        kit.servo[pin].set_pulse_width_range(500, 2500)
     # Párpados abiertos permanentemente (necesario para las cámaras)
     kit.servo[PIN_PARPADO_INF].angle = PARPADO_ABIERTO
     kit.servo[PIN_PARPADO_SUP].angle = PARPADO_ABIERTO
