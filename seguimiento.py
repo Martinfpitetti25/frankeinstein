@@ -41,6 +41,8 @@ PIN_PARPADO_INF =  3  # Párpado inferior (40=abierto, 85=cerrado)
 PIN_PARPADO_SUP =  5  # Párpado superior (40=abierto, 85=cerrado)
 PIN_CUELLO_YAW  =  4  # Cuello Yaw horizontal (50=Mirar Izq, 150=Mirar Der) [Etiqueta placa: PITCH]
 PIN_CUELLO_PITCH = 8  # Cuello Pitch vertical [Etiqueta placa: YAW]
+PIN_ROLL_1      = 10  # Roll 1 (Dejar en 50°)
+PIN_ROLL_2      =  6  # Roll 2 (Dejar en 50°)
 PARPADO_ABIERTO = 40
 PARPADO_CERRADO = 95
 
@@ -94,7 +96,7 @@ def clamp(v, lo, hi):
 
 
 def init_servos():
-    for pin in (PIN_LH, PIN_LV, PIN_RH, PIN_RV, PIN_PARPADO_INF, PIN_PARPADO_SUP, PIN_CUELLO_YAW, PIN_CUELLO_PITCH):
+    for pin in (PIN_LH, PIN_LV, PIN_RH, PIN_RV, PIN_PARPADO_INF, PIN_PARPADO_SUP, PIN_CUELLO_YAW, PIN_CUELLO_PITCH, PIN_ROLL_1, PIN_ROLL_2):
         kit.servo[pin].actuation_range = 180
         # Margen de seguridad para InMoov
         kit.servo[pin].set_pulse_width_range(600, 2350)
@@ -112,6 +114,8 @@ def center_all():
     kit.servo[PIN_RV].angle = RV["mid"]
     kit.servo[PIN_CUELLO_YAW].angle = CUELLO_YAW["mid"]
     kit.servo[PIN_CUELLO_PITCH].angle = CUELLO_PITCH["mid"]
+    kit.servo[PIN_ROLL_1].angle = 50
+    kit.servo[PIN_ROLL_2].angle = 50
 
 
 def apply_eyes(lh, lv, rh, rv):
@@ -349,13 +353,12 @@ try:
             # ── Cuello Lento (Yaw y Pitch) ──
             # Solo la cabeza empieza a moverse si miramos una cara por > 2.0s
             if (now - face_first_seen_time) > 2.0:
-                # YAW (Horizontal). +ex suma grados para compensar cara a la izquierda
-                cuello_yaw_ang = clamp(cuello_yaw_ang + (ex * 18.0 * dt), CUELLO_YAW["lo"], CUELLO_YAW["hi"])
+                # 45.0 grados por seg * ex máximo = arrastre más rápido del cuello
+                cuello_yaw_ang = clamp(cuello_yaw_ang + (ex * 50.0 * dt), CUELLO_YAW["lo"], CUELLO_YAW["hi"])
                 kit.servo[PIN_CUELLO_YAW].angle = int(cuello_yaw_ang)
                 
-                # PITCH (Vertical). Si no responde en el sentido correcto, cambia este + por un -
-                # 18.0 grados por seg * ey máximo = arrastre lento vertical
-                cuello_pitch_ang = clamp(cuello_pitch_ang + (ey * 18.0 * dt), CUELLO_PITCH["lo"], CUELLO_PITCH["hi"])
+                # PITCH (Vertical). Invertido para que acompañe visualmente (resta grados en vez de sumar)
+                cuello_pitch_ang = clamp(cuello_pitch_ang - (ey * 50.0 * dt), CUELLO_PITCH["lo"], CUELLO_PITCH["hi"])
                 kit.servo[PIN_CUELLO_PITCH].angle = int(cuello_pitch_ang)
 
             apply_eyes(lh, lv, rh, rv)
