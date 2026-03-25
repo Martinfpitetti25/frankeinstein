@@ -185,6 +185,7 @@ returning   = False
 frames      = 0
 fps_t       = time.time()
 tracked_face = None # Memoria de la cara actual
+face_first_seen_time = 0.0  # Temporizador de retardo para el cuello
 
 # Estado del parpadeo asíncrono
 blink_phase     = "IDLE"
@@ -293,6 +294,8 @@ try:
             else:
                 # Si recién entra, pesca el rostro más prominente/cercano (según score)
                 best = faces[faces[:, 14].argmax()]
+                if tracked_face is None:
+                    face_first_seen_time = now  # Iniciar cronómetro de seguimiento continuo
 
             bx, by    = int(best[0]), int(best[1])
             bw, bh    = int(best[2]), int(best[3])
@@ -340,10 +343,11 @@ try:
             lv = SMOOTH * lv + (1 - SMOOTH) * t_lv
             rh = SMOOTH * rh + (1 - SMOOTH) * t_rh
             # Cuello PITCH Yaw progresivo y despacio hacia la cara:
-            # ex > 0 significa a la izquierda. PIN_PITCH: 50=Izq. Entonces restamos para ir a la Izq.
-            # 18.0 grados por seg * ex máximo = suave arrastre hacia donde miras.
-            pitch_ang = clamp(pitch_ang - (ex * 18.0 * dt), PITCH["lo"], PITCH["hi"])
-            kit.servo[PIN_PITCH].angle = int(pitch_ang)
+            # (Invertido) +ex suma grados (va hacia 150/Derecha si la cara está a la izquierda, o 50/Izq si la cara está a la der).
+            # Solo la cabeza empieza a moverse si hemos estado viendo una cara por > 2.0s seguidos.
+            if (now - face_first_seen_time) > 2.0:
+                pitch_ang = clamp(pitch_ang + (ex * 18.0 * dt), PITCH["lo"], PITCH["hi"])
+                kit.servo[PIN_PITCH].angle = int(pitch_ang)
 
             apply_eyes(lh, lv, rh, rv)
 
@@ -364,6 +368,7 @@ try:
             if dt_lost > LOST_MS * 1.5:
                 # Pérdida real de fijación (se cambia de persona si aparece otra)
                 tracked_face = None
+                face_first_seen_time = 0.0
                 
             if dt_lost > RETURN_MS and not centered:
                 if not returning:
