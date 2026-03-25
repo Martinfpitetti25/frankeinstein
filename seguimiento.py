@@ -41,10 +41,10 @@ PIN_PARPADO_SUP = 5   # Párpado superior (40=abierto, 85=cerrado)
 PARPADO_ABIERTO = 40
 
 # Límites calibrados: dict con lo(mín), hi(máx), mid(centro)
-LH = dict(lo=40,  hi=120, mid=80)   # Izq Horizontal
-LV = dict(lo=85,  hi=105, mid=95)   # Izq Vertical  (105=arriba, 85=abajo)
-RH = dict(lo=40,  hi=120, mid=80)   # Der Horizontal
-RV = dict(lo=70,  hi=90,  mid=80)   # Der Vertical  (70=arriba, 90=abajo) ← INVERTIDO
+LH = dict(lo=80,  hi=140, mid=110)  # Izq Horizontal (80=Der, 140=Izq)
+LV = dict(lo=85,  hi=105, mid=95)   # Izq Vertical   (105=arriba, 85=abajo)
+RH = dict(lo=80,  hi=140, mid=110)  # Der Horizontal (80=Der, 140=Izq)
+RV = dict(lo=70,  hi=90,  mid=80)   # Der Vertical   (70=arriba, 90=abajo) ← INVERTIDO
 
 # ──────────────────────────────────────────────
 # PARÁMETROS
@@ -287,12 +287,7 @@ try:
             dir_y = -1 if fy < cy else 1
 
             if not HEADLESS:
-                cv2.putText(frame, f"Izq H{int(lh)} V{int(lv)}  Der H{int(rh)} V{int(rv)}",
-                            (15, frame.shape[0] - 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                cv2.putText(frame, f"CONFIG: KP={KP:.2f} | KI={KI:.3f} | SMOOTH={SMOOTH:.2f} | OFFSET_X={OFFSET_X}°",
-                            (15, frame.shape[0] - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.putText(frame, "(! Los cambios se auto-guardan)",
-                            (15, frame.shape[0] - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+                pass # Ya no pintamos nada en el frame para evitar saturar la imagen
 
             if frames % 10 == 0:
                 print(f"👤 IzqH={int(lh)}° IzqV={int(lv)}° | DerH={int(rh)}° DerV={int(rv)}°")
