@@ -42,9 +42,9 @@ PARPADO_ABIERTO = 40
 
 # Límites calibrados: dict con lo(mín), hi(máx), mid(centro)
 LH = dict(lo=40,  hi=130, mid=90)  # Izq Horizontal (80=Der, 140=Izq)
-LV = dict(lo=85,  hi=105, mid=95)   # Izq Vertical   (105=arriba, 85=abajo)
+LV = dict(lo=80,  hi=100, mid=90)   # Izq Vertical   (105=arriba, 85=abajo)
 RH = dict(lo=40,  hi=130, mid=90)  # Der Horizontal (80=Der, 140=Izq)
-RV = dict(lo=70,  hi=90,  mid=80)   # Der Vertical   (70=arriba, 90=abajo) ← INVERTIDO
+RV = dict(lo=80,  hi=100,  mid=90)   # Der Vertical   (70=arriba, 90=abajo) ← INVERTIDO
 
 # ──────────────────────────────────────────────
 # PARÁMETROS
