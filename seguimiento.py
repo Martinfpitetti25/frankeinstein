@@ -43,7 +43,8 @@ PIN_CUELLO_YAW  =  4  # Cuello Yaw horizontal (50=Mirar Izq, 150=Mirar Der) [Eti
 PIN_CUELLO_PITCH = 8  # Cuello Pitch vertical [Etiqueta placa: YAW]
 PIN_ROLL_1      = 10  # Roll 1 (Dejar en 50°)
 PIN_ROLL_2      =  6  # Roll 2 (Dejar en 50°)
-PARPADO_ABIERTO = 40
+PARPADO_ABIERTO_ABAJO = 40
+PARPADO_ABIERTO_ARRIBA = 50
 PARPADO_CERRADO = 95
 
 # Límites calibrados: dict con lo(mín), hi(máx), mid(centro)
@@ -101,8 +102,8 @@ def init_servos():
         # Margen de seguridad para InMoov
         kit.servo[pin].set_pulse_width_range(600, 2350)
     # Párpados abiertos permanentemente (necesario para las cámaras)
-    kit.servo[PIN_PARPADO_INF].angle = PARPADO_ABIERTO
-    kit.servo[PIN_PARPADO_SUP].angle = PARPADO_ABIERTO
+    kit.servo[PIN_PARPADO_INF].angle = PARPADO_ABIERTO_ABAJO
+    kit.servo[PIN_PARPADO_SUP].angle = PARPADO_ABIERTO_ARRIBA
     center_all()
     time.sleep(0.5)
 
@@ -114,8 +115,8 @@ def center_all():
     kit.servo[PIN_RV].angle = RV["mid"]
     kit.servo[PIN_CUELLO_YAW].angle = CUELLO_YAW["mid"]
     kit.servo[PIN_CUELLO_PITCH].angle = CUELLO_PITCH["mid"]
-    kit.servo[PIN_ROLL_1].angle = 50
-    kit.servo[PIN_ROLL_2].angle = 50
+    kit.servo[PIN_ROLL_1].angle = 40
+    kit.servo[PIN_ROLL_2].angle = 85
 
 
 def apply_eyes(lh, lv, rh, rv):
