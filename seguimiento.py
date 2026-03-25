@@ -21,6 +21,7 @@ import urllib.request
 import pathlib
 import json
 import os
+import random
 from adafruit_servokit import ServoKit
 import signal
 import sys
@@ -39,10 +40,11 @@ PIN_RV = 7   # Ojo Derecho Vertical
 PIN_PARPADO_INF = 3   # Párpado inferior (40=abierto, 85=cerrado)
 PIN_PARPADO_SUP = 5   # Párpado superior (40=abierto, 85=cerrado)
 PARPADO_ABIERTO = 40
+PARPADO_CERRADO = 85
 
 # Límites calibrados: dict con lo(mín), hi(máx), mid(centro)
 LH = dict(lo=40,  hi=130, mid=90)  # Izq Horizontal (80=Der, 140=Izq)
-LV = dict(lo=80,  hi=100, mid=90)   # Izq Vertical   (105=arriba, 85=abajo)
+LV = dict(lo=80,  hi=105, mid=90)   # Izq Vertical   (105=arriba, 80=abajo)
 RH = dict(lo=40,  hi=130, mid=90)  # Der Horizontal (80=Der, 140=Izq)
 RV = dict(lo=80,  hi=100,  mid=90)   # Der Vertical   (70=arriba, 90=abajo) ← INVERTIDO
 
@@ -180,6 +182,12 @@ returning   = False
 frames      = 0
 fps_t       = time.time()
 
+# Estado del parpadeo asíncrono
+blink_phase     = "IDLE"
+next_blink_time = time.time() + random.uniform(2.0, 10.0)
+blink_state_end = 0
+blinks_to_do    = 0
+
 if not HEADLESS:
     cv2.namedWindow("Seguimiento ocular")
     # OpenCV trackbars solo admiten enteros:
@@ -225,6 +233,35 @@ try:
         last_time = now
         now_ms = now * 1000.0
         
+        # ── LÓGICA DE PARPADEO (ASÍNCRONO O NO BLOQUEANTE) ──
+        if blink_phase == "IDLE":
+            if now > next_blink_time:
+                blinks_to_do = random.randint(1, 2)
+                kit.servo[PIN_PARPADO_INF].angle = PARPADO_CERRADO
+                kit.servo[PIN_PARPADO_SUP].angle = PARPADO_CERRADO
+                blink_phase = "CLOSED"
+                blink_state_end = now + 0.15  # tiempo de ojos cerrados (150ms)
+        
+        elif blink_phase == "CLOSED":
+            if now > blink_state_end:
+                kit.servo[PIN_PARPADO_INF].angle = PARPADO_ABIERTO
+                kit.servo[PIN_PARPADO_SUP].angle = PARPADO_ABIERTO
+                blinks_to_do -= 1
+                if blinks_to_do > 0:
+                    blink_phase = "OPEN_WAIT"
+                    blink_state_end = now + 0.30  # 300ms entre parpadeos dobles
+                else:
+                    blink_phase = "IDLE"
+                    next_blink_time = now + random.uniform(2.0, 10.0)
+        
+        elif blink_phase == "OPEN_WAIT":
+            if now > blink_state_end:
+                kit.servo[PIN_PARPADO_INF].angle = PARPADO_CERRADO
+                kit.servo[PIN_PARPADO_SUP].angle = PARPADO_CERRADO
+                blink_phase = "CLOSED"
+                blink_state_end = now + 0.15
+        # ────────────────────────────────────────────────────
+
         # Dimensiones actualizadas post-rotación
         h, w   = frame.shape[:2]
         cx, cy = w // 2, h // 2
