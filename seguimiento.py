@@ -34,6 +34,10 @@ PIN_LV = 1   # Ojo Izquierdo Vertical
 PIN_RH = 9   # Ojo Derecho Horizontal
 PIN_RV = 7   # Ojo Derecho Vertical
 
+PIN_PARPADO_INF = 3   # Párpado inferior (40=abierto, 85=cerrado)
+PIN_PARPADO_SUP = 5   # Párpado superior (40=abierto, 85=cerrado)
+PARPADO_ABIERTO = 40
+
 # Límites calibrados: dict con lo(mín), hi(máx), mid(centro)
 LH = dict(lo=40,  hi=120, mid=80)   # Izq Horizontal
 LV = dict(lo=85,  hi=105, mid=95)   # Izq Vertical  (105=arriba, 85=abajo)
@@ -65,9 +69,12 @@ def clamp(v, lo, hi):
 
 
 def init_servos():
-    for pin in (PIN_LH, PIN_LV, PIN_RH, PIN_RV):
+    for pin in (PIN_LH, PIN_LV, PIN_RH, PIN_RV, PIN_PARPADO_INF, PIN_PARPADO_SUP):
         kit.servo[pin].actuation_range = 180
         kit.servo[pin].set_pulse_width_range(650, 2000)
+    # Párpados abiertos permanentemente (necesario para las cámaras)
+    kit.servo[PIN_PARPADO_INF].angle = PARPADO_ABIERTO
+    kit.servo[PIN_PARPADO_SUP].angle = PARPADO_ABIERTO
     center_all()
     time.sleep(0.5)
 
