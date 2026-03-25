@@ -168,6 +168,9 @@ try:
         if not ok:
             break
 
+        # Compensar rotación física (cámara rotada a la derecha → corregir a la izquierda)
+        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
         frames += 1
         if frames % 30 == 0:
             fps = 30.0 / max(time.time() - fps_t, 1e-6)
@@ -178,8 +181,13 @@ try:
         dt     = max(1e-3, now - last_time)
         last_time = now
         now_ms = now * 1000.0
+        
+        # Dimensiones actualizadas post-rotación
         h, w   = frame.shape[:2]
         cx, cy = w // 2, h // 2
+        
+        # YuNet necesita saber en tiempo real el tamaño para encontrar las caras
+        fd.setInputSize((w, h))
 
         _, faces = fd.detect(frame)
 
