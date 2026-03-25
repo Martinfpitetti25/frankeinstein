@@ -41,9 +41,9 @@ PIN_PARPADO_SUP = 5   # Párpado superior (40=abierto, 85=cerrado)
 PARPADO_ABIERTO = 40
 
 # Límites calibrados: dict con lo(mín), hi(máx), mid(centro)
-LH = dict(lo=80,  hi=140, mid=110)  # Izq Horizontal (80=Der, 140=Izq)
+LH = dict(lo=40,  hi=130, mid=90)  # Izq Horizontal (80=Der, 140=Izq)
 LV = dict(lo=85,  hi=105, mid=95)   # Izq Vertical   (105=arriba, 85=abajo)
-RH = dict(lo=80,  hi=140, mid=110)  # Der Horizontal (80=Der, 140=Izq)
+RH = dict(lo=40,  hi=130, mid=90)  # Der Horizontal (80=Der, 140=Izq)
 RV = dict(lo=70,  hi=90,  mid=80)   # Der Vertical   (70=arriba, 90=abajo) ← INVERTIDO
 
 # ──────────────────────────────────────────────
@@ -90,9 +90,9 @@ def clamp(v, lo, hi):
 def init_servos():
     for pin in (PIN_LH, PIN_LV, PIN_RH, PIN_RV, PIN_PARPADO_INF, PIN_PARPADO_SUP):
         kit.servo[pin].actuation_range = 180
-        # Rango estándar de micro-servos (SG90/MG90S) = 500 a 2500 us.
-        # Si estaba en 650-2000, le estábamos "recortando" recorrido electrónico físico.
-        kit.servo[pin].set_pulse_width_range(500, 2500)
+        # Margen de seguridad para InMoov
+        # Se incrementó frente al original (650-2000) pero acotado para no colisionar plásticos
+        kit.servo[pin].set_pulse_width_range(600, 2350)
     # Párpados abiertos permanentemente (necesario para las cámaras)
     kit.servo[PIN_PARPADO_INF].angle = PARPADO_ABIERTO
     kit.servo[PIN_PARPADO_SUP].angle = PARPADO_ABIERTO
