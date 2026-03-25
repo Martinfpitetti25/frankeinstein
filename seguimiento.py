@@ -19,6 +19,8 @@ import cv2
 import time
 import urllib.request
 import pathlib
+import json
+import os
 from adafruit_servokit import ServoKit
 import signal
 import sys
@@ -50,9 +52,26 @@ RV = dict(lo=70,  hi=90,  mid=80)   # Der Vertical  (70=arriba, 90=abajo) ← IN
 CAM_INDEX   = 0
 HEADLESS    = False     # False → muestra ventana de video
 
-KP          = 0.80      # Ganancia proporcional (1.0 = mapeo 1 a 1)
-KI          = 0.01      # Ganancia integral
-SMOOTH      = 0.15      # Suavizado EMA (0=robot, 1=congelado)
+# ── Configuración persistente ──
+CONFIG_FILE = pathlib.Path(__file__).parent / "config.json"
+cfg = {
+    "KP": 0.80,
+    "KI": 0.01,
+    "SMOOTH": 0.15,
+    "OFFSET_X": 0       # Compensa si físicamente los ojos no miran al centro
+}
+
+if CONFIG_FILE.exists():
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            cfg.update(json.load(f))
+    except: pass
+
+KP          = cfg["KP"]
+KI          = cfg["KI"]
+SMOOTH      = cfg["SMOOTH"]
+OFFSET_X    = cfg["OFFSET_X"]
+
 DEADBAND_X  = 30        # píxeles de zona muerta horizontal
 DEADBAND_Y  = 25        # píxeles de zona muerta vertical
 I_CLAMP     = 20.0      # Límite del integrador
