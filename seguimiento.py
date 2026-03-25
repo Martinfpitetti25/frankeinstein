@@ -50,9 +50,9 @@ RV = dict(lo=70,  hi=90,  mid=80)   # Der Vertical  (70=arriba, 90=abajo) ← IN
 CAM_INDEX   = 0
 HEADLESS    = False     # False → muestra ventana de video
 
-KP          = 0.18      # Ganancia proporcional
+KP          = 0.80      # Ganancia proporcional (1.0 = mapeo 1 a 1)
 KI          = 0.01      # Ganancia integral
-SMOOTH      = 0.35      # Suavizado EMA (0=rígido, 1=sin movimiento)
+SMOOTH      = 0.15      # Suavizado EMA (0=robot, 1=congelado)
 DEADBAND_X  = 30        # píxeles de zona muerta horizontal
 DEADBAND_Y  = 25        # píxeles de zona muerta vertical
 I_CLAMP     = 20.0      # Límite del integrador
@@ -159,11 +159,23 @@ returning   = False
 frames      = 0
 fps_t       = time.time()
 
+if not HEADLESS:
+    cv2.namedWindow("Seguimiento ocular")
+    # OpenCV trackbars solo admiten enteros, las escalamos / 100
+    cv2.createTrackbar("KP", "Seguimiento ocular", int(KP * 100), 200, lambda x: None)
+    cv2.createTrackbar("KI", "Seguimiento ocular", int(KI * 1000), 100, lambda x: None)
+    cv2.createTrackbar("SMOOTH", "Seguimiento ocular", int(SMOOTH * 100), 100, lambda x: None)
+
 # ──────────────────────────────────────────────
 # LOOP PRINCIPAL
 # ──────────────────────────────────────────────
 try:
     while True:
+        if not HEADLESS:
+            KP = cv2.getTrackbarPos("KP", "Seguimiento ocular") / 100.0
+            KI = cv2.getTrackbarPos("KI", "Seguimiento ocular") / 1000.0
+            SMOOTH = cv2.getTrackbarPos("SMOOTH", "Seguimiento ocular") / 100.0
+
         ok, frame = cap.read()
         if not ok:
             break
