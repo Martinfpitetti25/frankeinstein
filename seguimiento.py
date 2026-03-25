@@ -101,9 +101,14 @@ def init_servos():
         kit.servo[pin].actuation_range = 180
         # Margen de seguridad para InMoov
         kit.servo[pin].set_pulse_width_range(600, 2350)
-    # Párpados abiertos permanentemente (necesario para las cámaras)
+    # Párpados abiertos permanentemente
     kit.servo[PIN_PARPADO_INF].angle = PARPADO_INF_ABIERTO
     kit.servo[PIN_PARPADO_SUP].angle = PARPADO_SUP_ABIERTO
+    
+    # Rolls fijos y crudos
+    kit.servo[10].angle = 40  # Roll 1 fijo
+    kit.servo[6].angle = 85   # Roll 2 fijo
+    
     center_all()
     time.sleep(0.5)
 
@@ -115,8 +120,6 @@ def center_all():
     kit.servo[PIN_RV].angle = RV["mid"]
     kit.servo[PIN_CUELLO_YAW].angle = CUELLO_YAW["mid"]
     kit.servo[PIN_CUELLO_PITCH].angle = CUELLO_PITCH["mid"]
-    kit.servo[PIN_ROLL_1].angle = 40
-    kit.servo[PIN_ROLL_2].angle = 40
 
 
 def apply_eyes(lh, lv, rh, rv):
