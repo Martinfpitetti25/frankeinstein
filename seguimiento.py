@@ -39,14 +39,16 @@ PIN_RV = 7   # Ojo Derecho Vertical
 
 PIN_PARPADO_INF = 3   # Párpado inferior (40=abierto, 85=cerrado)
 PIN_PARPADO_SUP = 5   # Párpado superior (40=abierto, 85=cerrado)
+PIN_PITCH       = 4   # Cuello Yaw (50=Mirar Izq, 150=Mirar Der)
 PARPADO_ABIERTO = 40
-PARPADO_CERRADO = 85
+PARPADO_CERRADO = 95
 
 # Límites calibrados: dict con lo(mín), hi(máx), mid(centro)
 LH = dict(lo=40,  hi=130, mid=90)  # Izq Horizontal (80=Der, 140=Izq)
-LV = dict(lo=80,  hi=105, mid=90)   # Izq Vertical   (105=arriba, 80=abajo)
+LV = dict(lo=80,  hi=100, mid=90)  # Izq Vertical   (105=arriba, 85=abajo)
 RH = dict(lo=40,  hi=130, mid=90)  # Der Horizontal (80=Der, 140=Izq)
-RV = dict(lo=80,  hi=100,  mid=90)   # Der Vertical   (70=arriba, 90=abajo) ← INVERTIDO
+RV = dict(lo=80,  hi=100,  mid=90) # Der Vertical   (70=arriba, 90=abajo) ← INVERTIDO
+PITCH = dict(lo=50, hi=150, mid=100) # Cuello Yaw (50=Mirar Izq, 150=Mirar Der)
 
 # ──────────────────────────────────────────────
 # PARÁMETROS
@@ -90,10 +92,9 @@ def clamp(v, lo, hi):
 
 
 def init_servos():
-    for pin in (PIN_LH, PIN_LV, PIN_RH, PIN_RV, PIN_PARPADO_INF, PIN_PARPADO_SUP):
+    for pin in (PIN_LH, PIN_LV, PIN_RH, PIN_RV, PIN_PARPADO_INF, PIN_PARPADO_SUP, PIN_PITCH):
         kit.servo[pin].actuation_range = 180
         # Margen de seguridad para InMoov
-        # Se incrementó frente al original (650-2000) pero acotado para no colisionar plásticos
         kit.servo[pin].set_pulse_width_range(600, 2350)
     # Párpados abiertos permanentemente (necesario para las cámaras)
     kit.servo[PIN_PARPADO_INF].angle = PARPADO_ABIERTO
@@ -107,6 +108,7 @@ def center_all():
     kit.servo[PIN_LV].angle = LV["mid"]
     kit.servo[PIN_RH].angle = RH["mid"]
     kit.servo[PIN_RV].angle = RV["mid"]
+    kit.servo[PIN_PITCH].angle = PITCH["mid"]
 
 
 def apply_eyes(lh, lv, rh, rv):
@@ -171,6 +173,7 @@ lh = float(LH["mid"])
 lv = float(LV["mid"])
 rh = float(RH["mid"])
 rv = float(RV["mid"])
+pitch_ang = float(PITCH["mid"])
 
 sum_ex = sum_ey = 0.0
 
@@ -181,10 +184,11 @@ centered    = False
 returning   = False
 frames      = 0
 fps_t       = time.time()
+tracked_face = None # Memoria de la cara actual
 
 # Estado del parpadeo asíncrono
 blink_phase     = "IDLE"
-next_blink_time = time.time() + random.uniform(2.0, 10.0)
+next_blink_time = time.time() + random.uniform(2.0, 8.0)
 blink_state_end = 0
 blinks_to_do    = 0
 
@@ -274,10 +278,28 @@ try:
         if faces is not None:
             centered = returning = False
 
-            best      = faces[faces[:, 14].argmax()]
+            # LÓGICA DE FIJACIÓN DE OBJETIVO (Target Lock)
+            # Evita saltar de una cara a otra eligiendo siempre la más cercana a la última pos conocida.
+            best = None
+            if tracked_face is not None:
+                min_dist = float('inf')
+                for f in faces:
+                    fx_t = f[0] + f[2] // 2
+                    fy_t = f[1] + f[3] // 2
+                    dist = (fx_t - tracked_face[0])**2 + (fy_t - tracked_face[1])**2
+                    if dist < min_dist:
+                        min_dist = dist
+                        best = f
+            else:
+                # Si recién entra, pesca el rostro más prominente/cercano (según score)
+                best = faces[faces[:, 14].argmax()]
+
             bx, by    = int(best[0]), int(best[1])
             bw, bh    = int(best[2]), int(best[3])
             fx, fy    = bx + bw // 2, by + bh // 2
+            
+            # Anotar esta cara para seguir persiguiendo a ésta la próxima vez
+            tracked_face = (fx, fy)
 
             if not HEADLESS:
                 cv2.rectangle(frame, (bx, by), (bx+bw, by+bh), (0, 255, 0), 2)
@@ -317,7 +339,11 @@ try:
             lh = SMOOTH * lh + (1 - SMOOTH) * t_lh
             lv = SMOOTH * lv + (1 - SMOOTH) * t_lv
             rh = SMOOTH * rh + (1 - SMOOTH) * t_rh
-            rv = SMOOTH * rv + (1 - SMOOTH) * t_rv
+            # Cuello PITCH Yaw progresivo y despacio hacia la cara:
+            # ex > 0 significa a la izquierda. PIN_PITCH: 50=Izq. Entonces restamos para ir a la Izq.
+            # 18.0 grados por seg * ex máximo = suave arrastre hacia donde miras.
+            pitch_ang = clamp(pitch_ang - (ex * 18.0 * dt), PITCH["lo"], PITCH["hi"])
+            kit.servo[PIN_PITCH].angle = int(pitch_ang)
 
             apply_eyes(lh, lv, rh, rv)
 
@@ -335,6 +361,10 @@ try:
             dt_lost = now_ms - last_seen
 
             # ── Retorno al centro (> 4 s sin cara) ───────────────────
+            if dt_lost > LOST_MS * 1.5:
+                # Pérdida real de fijación (se cambia de persona si aparece otra)
+                tracked_face = None
+                
             if dt_lost > RETURN_MS and not centered:
                 if not returning:
                     print("⏺️  Sin rostro → volviendo al centro...")
@@ -342,15 +372,19 @@ try:
 
                 dlh = LH["mid"] - lh;  dlv = LV["mid"] - lv
                 drh = RH["mid"] - rh;  drv = RV["mid"] - rv
+                dpitch = PITCH["mid"] - pitch_ang
 
-                if max(abs(dlh), abs(dlv), abs(drh), abs(drv)) > 1:
+                if max(abs(dlh), abs(dlv), abs(drh), abs(drv), abs(dpitch)) > 1:
                     lh += dlh * 0.15;  lv += dlv * 0.15
                     rh += drh * 0.15;  rv += drv * 0.15
+                    pitch_ang += dpitch * 0.10  # cuello vuelve al centro un poco mas lento
+                    kit.servo[PIN_PITCH].angle = int(pitch_ang)
                     apply_eyes(lh, lv, rh, rv)
                 else:
                     center_all()
                     lh, lv = float(LH["mid"]), float(LV["mid"])
                     rh, rv = float(RH["mid"]), float(RV["mid"])
+                    pitch_ang = float(PITCH["mid"])
                     sum_ex = sum_ey = 0.0
                     dir_x = dir_y = 0
                     centered = True;  returning = False
