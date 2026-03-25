@@ -119,7 +119,7 @@ if not cap.isOpened():
     sys.exit(1)
 
 _MODEL = pathlib.Path(__file__).parent / "models" / "yunet.onnx"
-_URL   = ("https://raw.githubusercontent.com/opencv/opencv_zoo/main/"
+_URL   = ("https://media.githubusercontent.com/media/opencv/opencv_zoo/main/"
           "models/face_detection_yunet/face_detection_yunet_2023mar.onnx")
 if not _MODEL.exists():
     print("⬇️  Descargando modelo YuNet (primera vez)...")
